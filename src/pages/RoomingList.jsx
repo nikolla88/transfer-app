@@ -115,6 +115,10 @@ export default function RoomingList() {
     if (f.depTransfer) q = q.eq('dep_transfer_alias', f.depTransfer)
     if (f.partner)     q = q.ilike('partner_alias', `%${f.partner}%`)
     if (f.meal)        q = q.ilike('meal', `%${f.meal}%`)
+    // Ako je search samo broj — filtriraj i na serveru po order_inc/claim_inc
+    if (f.search && /^\d+$/.test(f.search.trim())) {
+      q = q.or(`order_inc.ilike.%${f.search.trim()}%,claim_inc.ilike.%${f.search.trim()}%,partner_inc.ilike.%${f.search.trim()}%`)
+    }
     const { data, error } = await q.limit(2000)
     if (error) console.error(error)
     setRows(data || [])
@@ -346,7 +350,9 @@ export default function RoomingList() {
     return (
       r.tourist_name?.toLowerCase().includes(s) ||
       r.hotel_name?.toLowerCase().includes(s) ||
-      String(r.claim_inc || '').includes(s) ||
+      String(r.claim_inc  || '').includes(s) ||
+      String(r.order_inc  || '').includes(s) ||
+      String(r.partner_inc || '').includes(s) ||
       r.arr_flight_name?.toLowerCase().includes(s) ||
       r.dep_flight_name?.toLowerCase().includes(s) ||
       r.room?.toLowerCase().includes(s)
