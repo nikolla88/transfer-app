@@ -1,0 +1,25 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+dist-ssr/
+
+# Environment variables — NIKAD ne commitovati!
+.env
+.env.local
+.env.production
+.env.*.local
+
+# Editor
+.DS_Store
+*.suo
+.vscode/
+.idea/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Vite
+*.local
