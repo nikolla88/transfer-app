@@ -122,9 +122,14 @@ export default function RoomingList() {
     if (f.depTransfer) q = q.eq('dep_transfer_alias', f.depTransfer)
     if (f.partner)     q = q.ilike('partner_alias', `%${f.partner}%`)
     if (f.meal)        q = q.ilike('meal', `%${f.meal}%`)
-    // Ako je search samo broj — filtriraj i na serveru po order_inc/claim_inc
+    // Ako je search samo broj — filtriraj po broju rezervacije (eq za integer kolone)
     if (f.search && /^\d+$/.test(f.search.trim())) {
-      q = q.or(`order_inc.ilike.%${f.search.trim()}%,claim_inc.ilike.%${f.search.trim()}%,partner_inc.ilike.%${f.search.trim()}%`)
+      const num = f.search.trim()
+      // Ukloni datumske filtere kad se traži po broju — rezervacija može biti van opsega
+      q = supabase.from('rooming_list').select('*')
+        .or(`order_inc.eq.${num},claim_inc.eq.${num},partner_inc.eq.${num}`)
+        .order('date_beg', { ascending: true })
+        .order('tourist_name', { ascending: true })
     }
     const { data, error } = await q.limit(2000)
     if (error) console.error(error)
