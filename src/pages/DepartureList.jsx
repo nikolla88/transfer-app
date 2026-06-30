@@ -164,8 +164,8 @@ export default function DepartureList() {
   }
 
   async function saveVehicle(id, vehicleType) {
-    await supabase.from('rooming_list').update({ dep_vehicle_type: vehicleType }).eq('id', id)
-    const patch = r => r.id === id ? { ...r, dep_vehicle_type: vehicleType } : r
+    await supabase.from('rooming_list').update({ dep_vehicle_type: vehicleType || null }).eq('id', id)
+    const patch = r => r.id === id ? { ...r, dep_vehicle_type: vehicleType || null } : r
     setGroups(prev => prev.map(g => ({ ...g, records: g.records.map(patch) })))
     setNoTransfer(prev => prev.map(patch))
     setVehicleEdit(null)
@@ -359,14 +359,29 @@ export default function DepartureList() {
                         {r.dep_vehicle_type || '—'}
                       </span>
                       {vehicleEdit === r.id && (
-                        <div className="absolute z-20 top-full left-0 mt-0.5 flex gap-0.5 bg-white border border-gray-200 rounded shadow-lg px-1.5 py-1">
+                        <div className="fixed z-50 flex gap-0.5 bg-white border border-gray-200 rounded shadow-lg px-1.5 py-1"
+                          ref={el => {
+                            if (el) {
+                              const span = el.previousSibling
+                              if (span) {
+                                const rect = span.getBoundingClientRect()
+                                el.style.top  = (rect.bottom + 2) + 'px'
+                                el.style.left = rect.left + 'px'
+                              }
+                            }
+                          }}>
                           {VEH_OPTIONS.map(v => (
-                            <button key={v} onClick={() => saveVehicle(r.id, v)}
+                            <button key={v} onClick={() => { saveVehicle(r.id, v); setVehicleEdit(null) }}
                               className={`px-1.5 py-px rounded text-[9px] font-bold border transition-colors ${r.dep_vehicle_type === v ? VEH_CLS[v] + ' border-transparent' : 'bg-white text-gray-500 border-gray-300 hover:bg-gray-50'}`}>
                               {v === 'V-Class' ? 'VCL' : v === 'Minivan' ? 'MNV' : 'CAR'}
                             </button>
                           ))}
-                          <button onClick={() => setVehicleEdit(null)} className="px-1 py-px text-[9px] text-gray-300 hover:text-gray-500 ml-0.5">✕</button>
+                          <button
+                            onClick={() => { saveVehicle(r.id, null); setVehicleEdit(null) }}
+                            title="Ukloni vozilo"
+                            className="px-1.5 py-px text-[9px] font-bold text-red-400 border border-red-200 rounded hover:bg-red-50 ml-0.5">
+                            ✕
+                          </button>
                         </div>
                       )}
                     </>
