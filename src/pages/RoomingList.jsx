@@ -68,9 +68,16 @@ export default function RoomingList() {
   useEffect(() => {
     load(applied)
     loadFlightOpts()
-    // Očisti URL param da ne ostane nakon navigacije
     if (urlSearch) setSearchParams({}, { replace: true })
   }, [])
+
+  // Auto server-side pretraga kad korisnik ukuca broj rezervacije
+  useEffect(() => {
+    const s = filters.search?.trim()
+    if (!s || !/^\d+$/.test(s)) return  // samo za numeričke vrijednosti
+    const timer = setTimeout(() => load({ ...applied, search: s }), 400)
+    return () => clearTimeout(timer)
+  }, [filters.search])
 
   useEffect(() => {
     if (!quickEdit) return
@@ -138,6 +145,13 @@ export default function RoomingList() {
   async function saveQuickField(rowId, key, val) {
     const { error } = await supabase.from('rooming_list').update({ [key]: val }).eq('id', rowId)
     if (!error) setRows(prev => prev.map(r => r.id === rowId ? { ...r, [key]: val } : r))
+  }
+
+  async function deleteRow(row) {
+    const name = row.tourist_name || row.claim_inc || row.id
+    if (!window.confirm(`Obrisati rezervaciju?\n\n${name}\n\nOva akcija se ne može poništiti.`)) return
+    const { error } = await supabase.from('rooming_list').delete().eq('id', row.id)
+    if (!error) setRows(prev => prev.filter(r => r.id !== row.id))
   }
 
   // ── Import Excel ──────────────────────────────────────────────
@@ -532,6 +546,14 @@ export default function RoomingList() {
                       </td>
                     )
                   })}
+                  <td className="px-1 py-1 text-center">
+                    <button
+                      onClick={() => deleteRow(row)}
+                      title="Obriši rezervaciju"
+                      className="px-1 py-0.5 rounded text-xs text-red-300 hover:text-red-600 hover:bg-red-50 transition-colors">
+                      ✕
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>
