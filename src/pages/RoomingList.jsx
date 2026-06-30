@@ -122,13 +122,15 @@ export default function RoomingList() {
     if (f.depTransfer) q = q.eq('dep_transfer_alias', f.depTransfer)
     if (f.partner)     q = q.ilike('partner_alias', `%${f.partner}%`)
     if (f.meal)        q = q.ilike('meal', `%${f.meal}%`)
-    // Ako je search samo broj — traži kroz cijelu bazu (ignoriši datumske filtere)
+    // Ako je search samo broj — koristi RPC funkciju koja pretražuje cijelu bazu
     if (f.search && /^\d+$/.test(f.search.trim())) {
-      const num = f.search.trim()
-      q = supabase.from('rooming_list').select('*')
-        .or(`order_inc::text.ilike.%${num}%,claim_inc::text.ilike.%${num}%,partner_inc::text.ilike.%${num}%`)
-        .order('date_beg', { ascending: true })
-        .order('tourist_name', { ascending: true })
+      const { data, error } = await supabase.rpc('search_rooming_by_number', {
+        search_term: f.search.trim()
+      })
+      if (error) console.error('RPC error:', error)
+      setRows(data || [])
+      setLoading(false)
+      return
     }
     const { data, error } = await q.limit(2000)
     if (error) console.error(error)
