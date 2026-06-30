@@ -25,7 +25,8 @@ const NAV_ITEMS = [
   { to: '/transfers/arrival',   icon: '🛬', label: 'Lista dolazaka',  permKey: 'transfers_arrival'  },
   { to: '/schedule/group',      icon: '🚌', label: 'Grupni transferi',permKey: 'schedule_group'     },
   { divider: true },
-  { to: '/admin/users',         icon: '👥', label: 'Korisnici',       permKey: '__admin_only__'     },
+  { to: '/sale-prices',         icon: '💰', label: 'Cjenovnik prodaje', permKey: 'sale_prices'       },
+  { to: '/admin/users',         icon: '👥', label: 'Korisnici',         permKey: '__admin_only__'    },
 ]
 
 export default function Layout() {

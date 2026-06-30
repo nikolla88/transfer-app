@@ -32,6 +32,7 @@ const PAGE_GROUPS = [
       { key: 'admin_bus_prices',   label: 'Cijene autobusa',  icon: '🚌' },
       { key: 'admin_drivetimes',   label: 'Vremena vožnje',   icon: '⏱️' },
       { key: 'admin_vehicleblocks',label: 'Blokade vozila',   icon: '🔒' },
+      { key: 'sale_prices',        label: 'Cjenovnik prodaje', icon: '💰' },
     ],
   },
 ]

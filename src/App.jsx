@@ -20,6 +20,7 @@ import ArrivalList    from './pages/ArrivalList'
 import GroupSchedule  from './pages/operations/GroupSchedule'
 import BusPrices      from './pages/admin/BusPrices'
 import Users          from './pages/admin/Users'
+import SalePrices     from './pages/SalePrices'
 
 // ── Auth Context ─────────────────────────────────────────────
 const AuthCtx = createContext(null)
@@ -162,6 +163,10 @@ export default function App() {
               element={<RequirePermission permKey="admin_drivetimes"><DriveTimesPage /></RequirePermission>} />
             <Route path="admin/vehicleblocks"
               element={<RequirePermission permKey="admin_vehicleblocks"><VehicleBlocks /></RequirePermission>} />
+
+            {/* Cjenovnik prodajnih cijena */}
+            <Route path="sale-prices"
+              element={<RequirePermission permKey="sale_prices"><SalePrices /></RequirePermission>} />
 
             {/* Korisnici — samo admin */}
             <Route path="admin/users"
