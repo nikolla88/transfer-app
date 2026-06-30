@@ -122,12 +122,11 @@ export default function RoomingList() {
     if (f.depTransfer) q = q.eq('dep_transfer_alias', f.depTransfer)
     if (f.partner)     q = q.ilike('partner_alias', `%${f.partner}%`)
     if (f.meal)        q = q.ilike('meal', `%${f.meal}%`)
-    // Ako je search samo broj — filtriraj po broju rezervacije (eq za integer kolone)
+    // Ako je search samo broj — traži kroz cijelu bazu (ignoriši datumske filtere)
     if (f.search && /^\d+$/.test(f.search.trim())) {
       const num = f.search.trim()
-      // Ukloni datumske filtere kad se traži po broju — rezervacija može biti van opsega
       q = supabase.from('rooming_list').select('*')
-        .or(`order_inc.eq.${num},claim_inc.eq.${num},partner_inc.eq.${num}`)
+        .or(`order_inc::text.ilike.%${num}%,claim_inc::text.ilike.%${num}%,partner_inc::text.ilike.%${num}%`)
         .order('date_beg', { ascending: true })
         .order('tourist_name', { ascending: true })
     }
