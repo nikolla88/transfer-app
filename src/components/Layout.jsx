@@ -26,6 +26,7 @@ const NAV_ITEMS = [
   { to: '/schedule/group',      icon: '🚌', label: 'Grupni transferi',permKey: 'schedule_group'     },
   { divider: true },
   { to: '/sale-prices',         icon: '💰', label: 'Cjenovnik prodaje', permKey: 'sale_prices'       },
+  { to: '/reports',             icon: '📈', label: 'Izvještaji',         permKey: 'reports'           },
   { to: '/admin/users',         icon: '👥', label: 'Korisnici',         permKey: '__admin_only__'    },
 ]
 

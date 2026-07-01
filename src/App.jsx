@@ -21,6 +21,7 @@ import GroupSchedule  from './pages/operations/GroupSchedule'
 import BusPrices      from './pages/admin/BusPrices'
 import Users          from './pages/admin/Users'
 import SalePrices     from './pages/SalePrices'
+import Reports        from './pages/Reports'
 
 // ── Auth Context ─────────────────────────────────────────────
 const AuthCtx = createContext(null)
@@ -167,6 +168,10 @@ export default function App() {
             {/* Cjenovnik prodajnih cijena */}
             <Route path="sale-prices"
               element={<RequirePermission permKey="sale_prices"><SalePrices /></RequirePermission>} />
+
+            {/* Izvještaji */}
+            <Route path="reports"
+              element={<RequirePermission permKey="reports"><Reports /></RequirePermission>} />
 
             {/* Korisnici — samo admin */}
             <Route path="admin/users"

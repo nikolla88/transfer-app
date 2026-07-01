@@ -33,6 +33,7 @@ const PAGE_GROUPS = [
       { key: 'admin_drivetimes',   label: 'Vremena vožnje',   icon: '⏱️' },
       { key: 'admin_vehicleblocks',label: 'Blokade vozila',   icon: '🔒' },
       { key: 'sale_prices',        label: 'Cjenovnik prodaje', icon: '💰' },
+      { key: 'reports',            label: 'Izvještaji',         icon: '📈' },
     ],
   },
 ]
