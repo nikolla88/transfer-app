@@ -200,7 +200,7 @@ export default function DailySchedule() {
           inf:              r.infant || 0,
           vehicle_needed:   vehMap[r.arr_vehicle_type] || 'car',
           note:             r.claim_note || null,
-          transfer_type_raw:'IND',
+          transfer_type_raw: r.arr_transfer_alias || 'IND',
         })
       }
 
@@ -230,7 +230,7 @@ export default function DailySchedule() {
           inf:              r.infant || 0,
           vehicle_needed:   vehMap[r.dep_vehicle_type] || 'car',
           note:             r.claim_note || null,
-          transfer_type_raw:'IND',
+          transfer_type_raw: r.dep_transfer_alias || 'IND',
         })
       }
 
@@ -460,6 +460,14 @@ export default function DailySchedule() {
     setScheduled(prev => prev.map(t =>
       t.reservation_id === reservationId
         ? { ...t, assignedVehicle: newVehicle, assignedSupplier: null }
+        : t
+    ))
+  }
+
+  function assignSupplier(reservationId, supplier) {
+    setScheduled(prev => prev.map(t =>
+      t.reservation_id === reservationId
+        ? { ...t, assignedSupplier: supplier }
         : t
     ))
   }
@@ -1341,7 +1349,9 @@ ${vehHTML || '<p style="color:#999">Nema raspoređenih vozila.</p>'}
               group={extGroup}
               isExternal
               allVehicles={vehicles}
+              suppliers={suppliers}
               onReassign={reassignTransfer}
+              onAssignSupplier={assignSupplier}
               selectedIds={selectedIds}
               onToggleSelect={toggleSelect}
               onUnmerge={unmergeTransfer}
@@ -1546,9 +1556,97 @@ function FlightBadge({ flightNumber, type, flightStatuses }) {
   )
 }
 
-function VehicleCard({ group, isExternal, allVehicles = [], onReassign, selectedIds = new Set(), onToggleSelect, onUnmerge, onSeparate, splitReservations = new Set(), flightStatuses = {} }) {
+function SupplierPicker({ transfer: t, suppliers, onAssign, open, onToggle }) {
+  const [price, setPrice] = useState(t.assignedSupplier?.price?.toString() || '')
+  const [selected, setSelected] = useState(t.assignedSupplier || null)
+
+  // Sync local state when transfer changes from outside
+  useEffect(() => {
+    setSelected(t.assignedSupplier || null)
+    setPrice(t.assignedSupplier?.price?.toString() || '')
+  }, [t.assignedSupplier])
+
+  function confirmAssign() {
+    if (!selected) return
+    onAssign({ ...selected, price: price ? parseFloat(price) : null })
+    onToggle()
+  }
+
+  return (
+    <div className="relative mt-0.5">
+      <button
+        onClick={onToggle}
+        className={`text-xs px-2 py-0.5 rounded border transition-colors ${
+          t.assignedSupplier
+            ? 'bg-orange-50 border-orange-200 text-orange-700 hover:bg-orange-100'
+            : 'bg-red-50 border-red-200 text-red-600 hover:bg-red-100'
+        }`}
+      >
+        {t.assignedSupplier
+          ? `🤝 ${t.assignedSupplier.name}${t.assignedSupplier.price ? ` · ${t.assignedSupplier.price}€` : ''}`
+          : '⚠ Dodaj suplaera'}
+      </button>
+      {open && (
+        <div className="absolute right-0 top-7 z-30 bg-white border border-gray-200 rounded-lg shadow-xl w-56">
+          <div className="px-3 py-2 text-xs text-gray-500 font-medium border-b bg-gray-50 rounded-t-lg">Izaberi suplaera</div>
+          <div className="py-1">
+            {suppliers.length === 0
+              ? <div className="px-3 py-2 text-xs text-gray-400">Nema aktivnih suplaera</div>
+              : suppliers.map(s => (
+                <button
+                  key={s.id}
+                  onClick={() => { setSelected({ id: s.id, name: s.name }); setPrice('') }}
+                  className={`w-full text-left px-3 py-1.5 text-sm hover:bg-orange-50 flex items-center gap-2 ${
+                    selected?.id === s.id ? 'bg-orange-50 font-medium text-orange-700' : 'text-gray-700'
+                  }`}
+                >
+                  {selected?.id === s.id ? '✓' : '○'} {s.name}
+                </button>
+              ))
+            }
+          </div>
+          {selected && (
+            <div className="px-3 py-2 border-t bg-gray-50">
+              <label className="block text-xs text-gray-500 mb-1">Cijena (€) — opciono</label>
+              <div className="flex gap-2">
+                <input
+                  type="number"
+                  min="0"
+                  placeholder="0"
+                  value={price}
+                  onChange={e => setPrice(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && confirmAssign()}
+                  className="border border-gray-200 rounded px-2 py-1 text-sm w-20 focus:outline-none focus:ring-1 focus:ring-orange-300"
+                />
+                <button
+                  onClick={confirmAssign}
+                  className="flex-1 bg-orange-500 hover:bg-orange-600 text-white text-xs rounded px-3 py-1 font-medium"
+                >
+                  Potvrdi
+                </button>
+              </div>
+            </div>
+          )}
+          {t.assignedSupplier && (
+            <div className="px-3 py-1.5 border-t">
+              <button
+                onClick={() => { onAssign(null); onToggle() }}
+                className="text-xs text-gray-400 hover:text-red-500 w-full text-left"
+              >
+                ✕ Ukloni suplaera
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function VehicleCard({ group, isExternal, allVehicles = [], suppliers = [], onReassign, onAssignSupplier, selectedIds = new Set(), onToggleSelect, onUnmerge, onSeparate, splitReservations = new Set(), flightStatuses = {} }) {
   const { vehicle, jobs } = group
   const [openMenu, setOpenMenu] = useState(null)
+  const [openSupplierMenu, setOpenSupplierMenu] = useState(null)
 
   const headerColor = isExternal
     ? 'bg-orange-50 border-orange-200'
@@ -1673,13 +1771,14 @@ function VehicleCard({ group, isExternal, allVehicles = [], onReassign, selected
                       flightStatuses={flightStatuses}
                     />
                   )}
-                  {isExternal && t.assignedSupplier && (
-                    <div className="text-xs text-orange-600 font-medium mt-0.5">
-                      {t.assignedSupplier.name} · {t.assignedSupplier.price}€
-                    </div>
-                  )}
-                  {isExternal && !t.assignedSupplier && (
-                    <div className="text-xs text-red-500 mt-0.5">⚠ Bez suplajera</div>
+                  {isExternal && (
+                    <SupplierPicker
+                      transfer={t}
+                      suppliers={suppliers}
+                      onAssign={(sup) => onAssignSupplier?.(t.reservation_id, sup)}
+                      open={openSupplierMenu === t.reservation_id}
+                      onToggle={() => setOpenSupplierMenu(openSupplierMenu === t.reservation_id ? null : t.reservation_id)}
+                    />
                   )}
                 </div>
 
