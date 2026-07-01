@@ -174,7 +174,7 @@ export default function DailySchedule() {
       const getHotel = (name) => hotelMatchCache[name]?.hotel || null
 
       // 4. Mapping tipa vozila
-      const vehMap = { 'Car': 'car', 'Minivan': 'minivan', 'V-Class': 'vclass' }
+      const vehMap = { 'Car': 'car', 'Car Comfort': 'car_comfort', 'Minivan': 'minivan', 'V-Class': 'vclass' }
 
       let idCtr = 0
       const built = []

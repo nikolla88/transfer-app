@@ -17,6 +17,7 @@ const NAV_ITEMS = [
   { to: '/admin/bus-prices', icon: '🚌', label: 'Cijene autobusa',   permKey: 'admin_bus_prices'   },
   { to: '/admin/drivetimes', icon: '⏱️', label: 'Vremena vožnje',   permKey: 'admin_drivetimes'   },
   { to: '/admin/vehicleblocks', icon: '🔒', label: 'Blokade vozila', permKey: 'admin_vehicleblocks'},
+  { to: '/admin/vehicle-costs', icon: '💸', label: 'Troškovi vozila', permKey: 'admin_vehicle_costs'},
   { divider: true },
   { to: '/rooming',             icon: '🛏️', label: 'Rooming List',    permKey: 'rooming'           },
   { to: '/flights',             icon: '✈️',  label: 'Rasporedi letova',permKey: 'flights'           },

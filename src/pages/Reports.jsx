@@ -500,6 +500,7 @@ function DetailTable({ legs, sortCol, sortAsc, onSort }) {
 function VehicleReport() {
   const [transfers, setTransfers] = useState([])
   const [vehicles,  setVehicles]  = useState([])
+  const [costs,     setCosts]     = useState([])
   const [loading,   setLoading]   = useState(false)
 
   // Lookup mape za prihod
@@ -518,7 +519,7 @@ function VehicleReport() {
 
   async function loadAll() {
     setLoading(true)
-    const [tRes, vRes, hRes, pRes] = await Promise.all([
+    const [tRes, vRes, hRes, pRes, cRes] = await Promise.all([
       supabase.from('transfers')
         .select('id,transfer_date,type,airport,flight_number,tourist,adl,chd,pax,hotel_name,pickup_time,transfer_type_raw,vehicle_needed,assigned_vehicle_id,supplier_id,status')
         .is('supplier_id', null)
@@ -530,6 +531,10 @@ function VehicleReport() {
       supabase.from('vehicles').select('id,name,type,plate'),
       supabase.from('hotels').select('name,zone_id'),
       supabase.from('sale_prices').select('zone_id,airport,group_adt,group_chd,ind_econ,ind_comfort,minivan,v_class'),
+      supabase.from('vehicle_costs')
+        .select('vehicle_id,category,amount')
+        .gte('cost_date', dateFrom)
+        .lte('cost_date', dateTo),
     ])
     if (tRes.error) console.error('transfers:', tRes.error)
     if (vRes.error) console.error('vehicles:',  vRes.error)
@@ -546,8 +551,20 @@ function VehicleReport() {
     setPriceMap(pm)
     setVehicles(vRes.data || [])
     setTransfers(tRes.data || [])
+    setCosts(cRes.data || [])
     setLoading(false)
   }
+
+  // Troškovi po vozilu u periodu
+  const costsByVehicle = useMemo(() => {
+    const map = {}
+    for (const c of costs) {
+      if (!map[c.vehicle_id]) map[c.vehicle_id] = { total: 0, fuel: 0, service: 0, salary: 0, other: 0 }
+      map[c.vehicle_id].total += Number(c.amount)
+      map[c.vehicle_id][c.category] = (map[c.vehicle_id][c.category] || 0) + Number(c.amount)
+    }
+    return map
+  }, [costs])
 
   // Izračunaj prihod za jedan transfer
   // Napomena: vehicle_needed se čuva kao lowercase ('car','minivan','vclass','car_comfort')
@@ -615,14 +632,22 @@ function VehicleReport() {
   }
 
   // Summary kartice
-  const stats = useMemo(() => ({
-    trips:   filtered.length,
-    pax:     filtered.reduce((s,t) => s + t.paxTotal, 0),
-    revenue: filtered.reduce((s,t) => s + (t.revenue || 0), 0),
-    missing: filtered.filter(t => t.revenue == null).length,
-  }), [filtered])
+  const stats = useMemo(() => {
+    const revenue = filtered.reduce((s,t) => s + (t.revenue || 0), 0)
+    const totalCosts = costs
+      .filter(c => !fVehicle || c.vehicle_id === fVehicle)
+      .reduce((s,c) => s + Number(c.amount), 0)
+    return {
+      trips:   filtered.length,
+      pax:     filtered.reduce((s,t) => s + t.paxTotal, 0),
+      revenue,
+      costs:   totalCosts,
+      margin:  revenue - totalCosts,
+      missing: filtered.filter(t => t.revenue == null).length,
+    }
+  }, [filtered, costs, fVehicle])
 
-  // Grupisanje po vozilu
+  // Grupisanje po vozilu (sa troškovima)
   const byVehicle = useMemo(() => {
     const map = {}
     for (const t of filtered) {
@@ -633,8 +658,14 @@ function VehicleReport() {
       map[k].revenue += t.revenue || 0
       if (t.revenue == null) map[k].missing++
     }
-    return Object.values(map).sort((a,b) => b.revenue - a.revenue)
-  }, [filtered])
+    // Dodaj troškove po vozilu
+    return Object.values(map).map(r => ({
+      ...r,
+      costs: costsByVehicle[r.id]?.total || 0,
+      costDetail: costsByVehicle[r.id] || {},
+      margin: (r.revenue || 0) - (costsByVehicle[r.id]?.total || 0),
+    })).sort((a,b) => b.revenue - a.revenue)
+  }, [filtered, costsByVehicle])
 
   // Grupisanje po datumu
   const byDate = useMemo(() => {
@@ -707,12 +738,14 @@ function VehicleReport() {
       </div>
 
       {/* Summary kartice */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-5">
         {[
-          { label: 'Ukupan prihod', value: fmtEur(stats.revenue), cls: 'bg-blue-600 text-white' },
-          { label: 'Vožnji',        value: stats.trips,            cls: 'bg-gray-50 text-gray-700 border border-gray-200' },
-          { label: 'Putnika',       value: stats.pax,              cls: 'bg-gray-50 text-gray-700 border border-gray-200' },
-          { label: 'Bez cijene',    value: stats.missing,          cls: `border border-gray-200 ${stats.missing > 0 ? 'bg-amber-50 text-amber-700' : 'bg-gray-50 text-gray-400'}` },
+          { label: 'Prihod',     value: fmtEur(stats.revenue), cls: 'bg-blue-600 text-white' },
+          { label: 'Troškovi',   value: fmtEur(stats.costs),   cls: 'bg-red-500 text-white' },
+          { label: 'Marža',      value: fmtEur(stats.margin),  cls: stats.margin >= 0 ? 'bg-green-600 text-white' : 'bg-orange-500 text-white' },
+          { label: 'Vožnji',     value: stats.trips,            cls: 'bg-gray-50 text-gray-700 border border-gray-200' },
+          { label: 'Putnika',    value: stats.pax,              cls: 'bg-gray-50 text-gray-700 border border-gray-200' },
+          { label: 'Bez cijene', value: stats.missing,          cls: `border border-gray-200 ${stats.missing > 0 ? 'bg-amber-50 text-amber-700' : 'bg-gray-50 text-gray-400'}` },
         ].map(c => (
           <div key={c.label} className={`rounded-xl p-3 ${c.cls}`}>
             <div className="text-xs opacity-70 mb-1">{c.label}</div>
@@ -742,15 +775,17 @@ function VehicleReport() {
                   <tr className="bg-gray-50 border-b border-gray-200 text-left">
                     <th className="px-4 py-3 font-medium text-gray-600">Vozilo</th>
                     <th className="px-4 py-3 font-medium text-gray-600 text-right">Vožnji</th>
-                    <th className="px-4 py-3 font-medium text-gray-600 text-right">Putnika</th>
+                    <th className="px-4 py-3 font-medium text-gray-600 text-right">Pax</th>
                     <th className="px-4 py-3 font-medium text-gray-600 text-right">Prihod</th>
-                    <th className="px-4 py-3 font-medium text-gray-600 text-right">Bez cijene</th>
-                    <th className="px-4 py-3 font-medium text-gray-600 w-24">Udio</th>
+                    <th className="px-4 py-3 font-medium text-gray-600 text-right">Troškovi</th>
+                    <th className="px-4 py-3 font-medium text-gray-600 text-right">Marža</th>
+                    <th className="px-4 py-3 font-medium text-gray-600 w-20">Udio</th>
                   </tr>
                 </thead>
                 <tbody>
                   {byVehicle.map((r, i) => {
                     const pct = stats.revenue > 0 ? (r.revenue / stats.revenue) * 100 : 0
+                    const marginPct = r.revenue > 0 ? (r.margin / r.revenue) * 100 : 0
                     return (
                       <tr key={r.id} className={`border-b border-gray-100 ${i%2===0?'bg-white':'bg-gray-50/40'}`}>
                         <td className="px-4 py-2.5">
@@ -759,9 +794,19 @@ function VehicleReport() {
                         </td>
                         <td className="px-4 py-2.5 text-right text-gray-600">{r.trips}</td>
                         <td className="px-4 py-2.5 text-right text-gray-600">{r.pax}</td>
-                        <td className="px-4 py-2.5 text-right font-semibold text-gray-800">{fmtEur(r.revenue)}</td>
-                        <td className="px-4 py-2.5 text-right text-xs">
-                          {r.missing > 0 ? <span className="text-amber-500">{r.missing}</span> : <span className="text-gray-300">—</span>}
+                        <td className="px-4 py-2.5 text-right font-semibold text-blue-700">{fmtEur(r.revenue)}</td>
+                        <td className="px-4 py-2.5 text-right text-red-600">
+                          {r.costs > 0
+                            ? <span title={`⛽${fmtEur(r.costDetail.fuel||0)} 🔧${fmtEur(r.costDetail.service||0)} 👤${fmtEur(r.costDetail.salary||0)} 📋${fmtEur(r.costDetail.other||0)}`}>
+                                {fmtEur(r.costs)}
+                              </span>
+                            : <span className="text-gray-300">—</span>}
+                        </td>
+                        <td className="px-4 py-2.5 text-right font-semibold">
+                          <span className={r.margin >= 0 ? 'text-green-600' : 'text-orange-500'}>
+                            {fmtEur(r.margin)}
+                          </span>
+                          {r.revenue > 0 && <div className="text-xs text-gray-400">{marginPct.toFixed(0)}%</div>}
                         </td>
                         <td className="px-4 py-2.5">
                           <div className="w-full bg-gray-100 rounded-full h-2">
@@ -778,8 +823,13 @@ function VehicleReport() {
                     <td className="px-4 py-3 text-blue-800">UKUPNO</td>
                     <td className="px-4 py-3 text-right text-blue-800">{stats.trips}</td>
                     <td className="px-4 py-3 text-right text-blue-800">{stats.pax}</td>
-                    <td className="px-4 py-3 text-right text-blue-800 text-base">{fmtEur(stats.revenue)}</td>
-                    <td className="px-4 py-3 text-right text-blue-800">{stats.missing > 0 ? stats.missing : '—'}</td>
+                    <td className="px-4 py-3 text-right text-blue-700 text-base">{fmtEur(stats.revenue)}</td>
+                    <td className="px-4 py-3 text-right text-red-600 text-base">{fmtEur(stats.costs)}</td>
+                    <td className="px-4 py-3 text-right text-base">
+                      <span className={stats.margin >= 0 ? 'text-green-600 font-bold' : 'text-orange-500 font-bold'}>
+                        {fmtEur(stats.margin)}
+                      </span>
+                    </td>
                     <td/>
                   </tr>
                 </tfoot>
