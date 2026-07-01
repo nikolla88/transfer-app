@@ -445,6 +445,55 @@ export default function DailySchedule() {
     setStep('schedule')
   }
 
+  async function loadSavedSchedule() {
+    setLoading(true)
+    const { data, error } = await supabase
+      .from('transfers')
+      .select('*')
+      .eq('transfer_date', date)
+      .order('pickup_time')
+
+    if (error) { alert('Greška: ' + error.message); setLoading(false); return }
+    if (!data || data.length === 0) {
+      alert(`Nema sačuvanih transfera za ${date}.`)
+      setLoading(false)
+      return
+    }
+
+    const vehicleMap = Object.fromEntries(vehicles.map(v => [v.id, v]))
+    const supplierMap = Object.fromEntries(suppliers.map(s => [s.id, s]))
+
+    let idCtr = 0
+    const rebuilt = data.map(t => ({
+      _id:              idCtr++,
+      _uid:             `uid_${idCtr}_${Date.now()}`,
+      type:             t.type,
+      reservation_id:   t.reservation_id,
+      tourist:          t.tourist,
+      hotel_name:       t.hotel_name,
+      zone_name:        null,
+      flight_number:    t.flight_number,
+      flight_time:      t.flight_time,
+      airport:          t.airport,
+      pickup_time:      t.pickup_time,
+      pax:              t.pax || (t.adl || 0) + (t.chd || 0),
+      adl:              t.adl || 0,
+      chd:              t.chd || 0,
+      inf:              0,
+      vehicle_needed:   t.vehicle_needed || 'car',
+      note:             t.note || null,
+      transfer_type_raw: t.transfer_type_raw || 'IND',
+      assignedVehicle:  t.assigned_vehicle_id ? vehicleMap[t.assigned_vehicle_id] || null : null,
+      assignedSupplier: t.supplier_id
+        ? { id: t.supplier_id, name: supplierMap[t.supplier_id]?.name || '?', price: t.supplier_price }
+        : null,
+    }))
+
+    setScheduled(rebuilt)
+    setStep('schedule')
+    setLoading(false)
+  }
+
   // Razdvoji jednu konkretnu instancu (job._uid) od ostalih s istim reservation_id
   function separateTransfer(uid) {
     const suffix = '_X' + Math.random().toString(36).slice(2, 5).toUpperCase()
@@ -1191,6 +1240,19 @@ ${vehHTML || '<p style="color:#999">Nema raspoređenih vozila.</p>'}
             <p className="text-xs text-gray-400 mt-2">IND transferi za {date} — vozilo iz rooming liste</p>
           </div>
 
+          {/* Uredi sačuvani */}
+          <div className="border-t pt-6 mt-6">
+            <p className="text-xs text-gray-400 mb-3 uppercase tracking-wide">ili uredi već sačuvani raspored</p>
+            <button
+              onClick={loadSavedSchedule}
+              disabled={loading}
+              className="btn-ghost px-6 py-2 text-sm border border-blue-200 text-blue-600 rounded hover:bg-blue-50"
+            >
+              {loading ? 'Učitavanje...' : '✏️ Uredi sačuvani raspored'}
+            </button>
+            <p className="text-xs text-gray-400 mt-2">Učitaj postojeće transfere za {date} i izmijeni rasporede</p>
+          </div>
+
           {/* Alternativa: Excel */}
           <div className="border-t pt-6 mt-6">
             <p className="text-xs text-gray-400 mb-3 uppercase tracking-wide">ili uvezi iz Excel fajla</p>
@@ -1336,6 +1398,7 @@ ${vehHTML || '<p style="color:#999">Nema raspoređenih vozila.</p>'}
               group={g}
               allVehicles={vehicles}
               onReassign={reassignTransfer}
+              onRemove={uid => setScheduled(prev => prev.filter(t => t._uid !== uid))}
               selectedIds={selectedIds}
               onToggleSelect={toggleSelect}
               onUnmerge={unmergeTransfer}
@@ -1352,6 +1415,7 @@ ${vehHTML || '<p style="color:#999">Nema raspoređenih vozila.</p>'}
               suppliers={suppliers}
               onReassign={reassignTransfer}
               onAssignSupplier={assignSupplier}
+              onRemove={uid => setScheduled(prev => prev.filter(t => t._uid !== uid))}
               selectedIds={selectedIds}
               onToggleSelect={toggleSelect}
               onUnmerge={unmergeTransfer}
@@ -1643,7 +1707,7 @@ function SupplierPicker({ transfer: t, suppliers, onAssign, open, onToggle }) {
   )
 }
 
-function VehicleCard({ group, isExternal, allVehicles = [], suppliers = [], onReassign, onAssignSupplier, selectedIds = new Set(), onToggleSelect, onUnmerge, onSeparate, splitReservations = new Set(), flightStatuses = {} }) {
+function VehicleCard({ group, isExternal, allVehicles = [], suppliers = [], onReassign, onAssignSupplier, onRemove, selectedIds = new Set(), onToggleSelect, onUnmerge, onSeparate, splitReservations = new Set(), flightStatuses = {} }) {
   const { vehicle, jobs } = group
   const [openMenu, setOpenMenu] = useState(null)
   const [openSupplierMenu, setOpenSupplierMenu] = useState(null)
@@ -1813,6 +1877,17 @@ function VehicleCard({ group, isExternal, allVehicles = [], suppliers = [], onRe
                       title="Rastavi spojene transfere"
                     >
                       ✂ Rastavi
+                    </button>
+                  )}
+
+                  {/* Ukloni transfer */}
+                  {onRemove && (
+                    <button
+                      onClick={() => { if (confirm(`Ukloni "${t.tourist}" iz rasporeda?`)) onRemove(t._uid) }}
+                      className="opacity-0 group-hover:opacity-100 transition-opacity px-2 py-1 rounded text-xs border border-red-200 bg-white hover:bg-red-50 text-red-400 whitespace-nowrap"
+                      title="Ukloni iz rasporeda"
+                    >
+                      🗑
                     </button>
                   )}
 
