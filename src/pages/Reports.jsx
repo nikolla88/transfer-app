@@ -1,4 +1,5 @@
 import { useEffect, useState, useMemo } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 
 // ── Konstante ─────────────────────────────────────────────────────
@@ -89,7 +90,7 @@ function TransferRevenueReport() {
   async function load() {
     setLoading(true)
     let q = supabase.from('rooming_list').select(
-      'id,tourist_name,hotel_name,hotel_town,partner_alias,adult,child,' +
+      'id,claim_inc,tourist_name,hotel_name,hotel_town,partner_alias,adult,child,' +
       'date_beg,date_end,' +
       'arr_flight_name,arr_transfer_alias,arr_vehicle_type,arr_revenue,' +
       'dep_flight_name,dep_transfer_alias,dep_vehicle_type,dep_revenue'
@@ -119,7 +120,7 @@ function TransferRevenueReport() {
 
       if ((direction === 'all' || direction === 'arr') && r.arr_transfer_alias && r.arr_transfer_alias !== 'NO TR-R' && inArr) {
         result.push({
-          id: r.id+'_arr', guest: r.tourist_name, date: r.date_beg, dir: 'ARR',
+          id: r.id+'_arr', claimInc: r.claim_inc, guest: r.tourist_name, date: r.date_beg, dir: 'ARR',
           flight: r.arr_flight_name||'—', type: r.arr_transfer_alias,
           vehicle: r.arr_vehicle_type||'—', town: r.hotel_town||'—',
           partner: r.partner_alias||'—', adult: r.adult||0, child: r.child||0,
@@ -128,7 +129,7 @@ function TransferRevenueReport() {
       }
       if ((direction === 'all' || direction === 'dep') && r.dep_transfer_alias && r.dep_transfer_alias !== 'NO TR-R' && inDep) {
         result.push({
-          id: r.id+'_dep', guest: r.tourist_name, date: r.date_end, dir: 'DEP',
+          id: r.id+'_dep', claimInc: r.claim_inc, guest: r.tourist_name, date: r.date_end, dir: 'DEP',
           flight: r.dep_flight_name||'—', type: r.dep_transfer_alias,
           vehicle: r.dep_vehicle_type||'—', town: r.hotel_town||'—',
           partner: r.partner_alias||'—', adult: r.adult||0, child: r.child||0,
@@ -416,6 +417,7 @@ function GroupedTable({ grouped, groupBy }) {
 
 // ── Detaljna tabela ───────────────────────────────────────────────
 function DetailTable({ legs, sortCol, sortAsc, onSort }) {
+  const navigate = useNavigate()
   const TYPE_COLOR = { GRP:'bg-blue-100 text-blue-700', IND:'bg-green-100 text-green-700', SHA:'bg-purple-100 text-purple-700' }
   const DIR_COLOR  = { ARR:'bg-emerald-100 text-emerald-700', DEP:'bg-amber-100 text-amber-800' }
 
@@ -455,7 +457,17 @@ function DetailTable({ legs, sortCol, sortAsc, onSort }) {
                 <td className="px-3 py-2">
                   <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${DIR_COLOR[l.dir]}`}>{l.dir}</span>
                 </td>
-                <td className="px-3 py-2 font-medium text-gray-800 max-w-[150px] truncate">{l.guest}</td>
+                <td className="px-3 py-2 max-w-[190px]">
+                  <div className="font-medium text-gray-800 truncate">{l.guest}</div>
+                  {l.claimInc && (
+                    <button
+                      onClick={() => navigate(`/rooming?search=${l.claimInc}`)}
+                      className="text-xs text-blue-500 hover:text-blue-700 hover:underline font-mono mt-0.5"
+                    >
+                      #{l.claimInc}
+                    </button>
+                  )}
+                </td>
                 <td className="px-3 py-2 text-gray-600 font-mono text-xs">{l.flight}</td>
                 <td className="px-3 py-2 text-gray-600">{l.town}</td>
                 <td className="px-3 py-2 text-gray-500 text-xs">{l.partner}</td>
