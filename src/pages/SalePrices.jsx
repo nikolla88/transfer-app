@@ -32,9 +32,9 @@ export default function SalePrices() {
     setLoading(true)
     const { data, error } = await supabase
       .from('sale_prices')
-      .select('*')
+      .select('*, zones(name)')
       .eq('airport', ap)
-      .order('destination')
+      .order('zones(name)')
     if (error) console.error(error)
     setRows(data || [])
     setEditing({})
@@ -134,7 +134,7 @@ export default function SalePrices() {
               {rows.map((row, i) => (
                 <tr key={row.id}
                   className={`border-b border-gray-100 ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50/40'}`}>
-                  <td className="px-4 py-2 font-medium text-gray-700">{row.destination}</td>
+                  <td className="px-4 py-2 font-medium text-gray-700">{row.zones?.name}</td>
                   {COLS.map(c => {
                     const key = cellKey(row.id, c.key)
                     const isEditing = key in editing
