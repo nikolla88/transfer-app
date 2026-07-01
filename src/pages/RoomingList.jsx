@@ -27,8 +27,8 @@ const COLS = [
 ]
 
 const TRANSFER_TYPES = ['GRP', 'IND', 'SHA', 'NO TR-R']
-const VEHICLE_TYPES  = ['Car', 'Minivan', 'V-Class']
-const VEHICLE_ICON   = { 'Car': '🚗', 'Minivan': '🚐', 'V-Class': '⭐' }
+const VEHICLE_TYPES  = ['Car', 'Car Comfort', 'Minivan', 'V-Class']
+const VEHICLE_ICON   = { 'Car': '🚗', 'Car Comfort': '🚙', 'Minivan': '🚐', 'V-Class': '⭐' }
 const BATCH = 100
 
 const EMPTY_FILTERS = {

@@ -151,7 +151,7 @@ export default function ArrivalList() {
   }
 
   // ── Vehicle type inline edit ──────────────────────────────────
-  const VEH_OPTIONS = ['Car', 'Minivan', 'V-Class']
+  const VEH_OPTIONS = ['Car', 'Car Comfort', 'Minivan', 'V-Class']
   const VEH_CLS = {
     'Car':     'bg-blue-500 text-white',
     'Minivan': 'bg-green-500 text-white',
