@@ -11,7 +11,8 @@ import Hotels from './pages/admin/Hotels'
 import Suppliers from './pages/admin/Suppliers'
 import Prices from './pages/admin/Prices'
 import DriveTimesPage from './pages/admin/DriveTimesPage'
-import VehicleBlocks from './pages/admin/VehicleBlocks'
+import VehicleBlocks  from './pages/admin/VehicleBlocks'
+import VehicleRentals from './pages/admin/VehicleRentals'
 import DailySchedule from './pages/operations/DailySchedule'
 import RoomingList    from './pages/RoomingList'
 import FlightSchedule from './pages/FlightSchedule'
@@ -165,6 +166,8 @@ export default function App() {
               element={<RequirePermission permKey="admin_drivetimes"><DriveTimesPage /></RequirePermission>} />
             <Route path="admin/vehicleblocks"
               element={<RequirePermission permKey="admin_vehicleblocks"><VehicleBlocks /></RequirePermission>} />
+            <Route path="admin/vehicle-rentals"
+              element={<RequirePermission permKey="admin_vehicleblocks"><VehicleRentals /></RequirePermission>} />
 
             {/* Troškovi vozila */}
             <Route path="admin/vehicle-costs"

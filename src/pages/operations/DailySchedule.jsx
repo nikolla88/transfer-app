@@ -68,9 +68,9 @@ export default function DailySchedule() {
 
   async function loadBlocks() {
     const { data } = await supabase
-      .from('vehicle_blocks')
+      .from('vehicle_rentals')
       .select('vehicle_id, time_from, time_to')
-      .eq('block_date', date)
+      .eq('rental_date', date)
     setVehBlocks(data || [])
   }
 
