@@ -4,9 +4,10 @@ import { supabase } from '../lib/supabase'
 
 // ── Konstante ─────────────────────────────────────────────────────
 const REPORTS = [
-  { id: 'transfer_revenue', icon: '💰', label: 'Prihod od transfera',   ready: true  },
-  { id: 'vehicles',         icon: '🚗', label: 'Izvještaj po vozilima',  ready: true  },
-  { id: 'suppliers',        icon: '🤝', label: 'Externi suplajeri',      ready: true  },
+  { id: 'transfer_revenue', icon: '💰', label: 'Prihod od transfera',    ready: true  },
+  { id: 'vehicles',         icon: '🚗', label: 'Izvještaj po vozilima',   ready: true  },
+  { id: 'suppliers',        icon: '🤝', label: 'Externi suplajeri',       ready: true  },
+  { id: 'vehicle_worktime', icon: '⏱️', label: 'Vrijeme rada vozila',     ready: true  },
   { id: 'buses',            icon: '🚌', label: 'Izvještaj po autobusima', ready: false },
 ]
 
@@ -60,6 +61,7 @@ export default function Reports() {
         {activeReport === 'transfer_revenue' && <TransferRevenueReport />}
         {activeReport === 'vehicles'         && <VehicleReport />}
         {activeReport === 'suppliers'        && <SupplierReport />}
+        {activeReport === 'vehicle_worktime' && <VehicleWorkTimeReport />}
       </div>
     </div>
   )
@@ -1251,6 +1253,285 @@ function SupplierReport() {
           </div>
         )
       }
+    </div>
+  )
+}
+
+// ── Izvještaj: Vrijeme rada vozila ────────────────────────────────
+function VehicleWorkTimeReport() {
+  const [rows,      setRows]      = useState(null)
+  const [filename,  setFilename]  = useState('')
+  const [xlibReady, setXlibReady] = useState(false)
+  const [loading,   setLoading]   = useState(false)
+  const [libError,  setLibError]  = useState(null)
+
+  // Load SheetJS from CDN once
+  useEffect(() => {
+    if (window.XLSX) { setXlibReady(true); return }
+    const s = document.createElement('script')
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js'
+    s.onload  = () => setXlibReady(true)
+    s.onerror = () => setLibError('Nije moguće učitati biblioteku za XLS/XLSX parsing.')
+    document.head.appendChild(s)
+  }, [])
+
+  // Parse "1 d 6 h 11 min 32 s" → seconds
+  function parseDurSec(s) {
+    if (!s) return 0
+    let sec = 0
+    const d = s.match(/(\d+)\s*d/);   if (d) sec += parseInt(d[1]) * 86400
+    const h = s.match(/(\d+)\s*h/);   if (h) sec += parseInt(h[1]) * 3600
+    const m = s.match(/(\d+)\s*min/); if (m) sec += parseInt(m[1]) * 60
+    const sv = s.match(/(\d+)\s*s/);  if (sv) sec += parseInt(sv[1])
+    return sec
+  }
+
+  // "66,90 km" → 66.90
+  function parseKm(s) {
+    if (!s) return 0
+    return parseFloat(String(s).replace(/\./g, '').replace(',', '.')) || 0
+  }
+
+  // "106 km/h" → 106
+  function parseSpeed(s) {
+    if (!s) return 0
+    return parseInt(String(s)) || 0
+  }
+
+  // seconds → "1h 16min" or "45min"
+  function fmtSec(sec) {
+    if (!sec && sec !== 0) return '—'
+    const h = Math.floor(sec / 3600)
+    const m = Math.floor((sec % 3600) / 60)
+    if (h > 0) return `${h}h ${m}min`
+    return `${m}min`
+  }
+
+  // "2026-06-02 06:44:08" → "06:44"
+  function fmtTime(s) {
+    if (!s) return '—'
+    return String(s).slice(11, 16)
+  }
+
+  // cell value → datetime string "YYYY-MM-DD HH:MM:SS"
+  function cellToStr(v) {
+    if (!v) return null
+    if (v instanceof Date) return v.toISOString().replace('T', ' ').slice(0, 19)
+    return String(v)
+  }
+
+  function handleFile(e) {
+    const file = e.target.files[0]
+    if (!file) return
+    setFilename(file.name)
+    setLoading(true)
+    setRows(null)
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      try {
+        const wb = window.XLSX.read(ev.target.result, { type: 'array', cellDates: true })
+        const ws = wb.Sheets[wb.SheetNames[0]]
+        const rawRows = window.XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, raw: true })
+        processRows(rawRows)
+      } catch(err) {
+        console.error(err)
+        setLoading(false)
+      }
+    }
+    reader.readAsArrayBuffer(file)
+  }
+
+  function processRows(rawRows) {
+    // Rows: [Status, Start, End, DurationText, Col4(km or gps), MaxSpeed, AvgSpeed, TripType, Driver]
+    // Header rows are first 2
+    const entries = []
+    for (let i = 2; i < rawRows.length; i++) {
+      const r = rawRows[i]
+      if (!r || !r[0]) continue
+      const status = String(r[0]).trim()
+      if (status !== 'Kretanje' && status !== 'Stajanje') continue
+      const isKret = status === 'Kretanje'
+      entries.push({
+        status,
+        start:    cellToStr(r[1]),
+        end:      cellToStr(r[2]),
+        durSec:   parseDurSec(r[3]),
+        km:       isKret ? parseKm(r[4])    : 0,
+        maxSpeed: isKret ? parseSpeed(r[5]) : 0,
+        avgSpeed: isKret ? parseSpeed(r[6]) : 0,
+      })
+    }
+
+    // Group drives (Kretanje) by calendar date of their start
+    const dayMap = {}
+    for (const e of entries) {
+      if (e.status !== 'Kretanje' || !e.start) continue
+      const date = e.start.slice(0, 10)
+      if (!dayMap[date]) dayMap[date] = { date, drives: [], driveSec: 0, km: 0, maxSpeed: 0 }
+      const d = dayMap[date]
+      d.drives.push(e)
+      d.driveSec  += e.durSec
+      d.km        += e.km
+      d.maxSpeed   = Math.max(d.maxSpeed, e.maxSpeed)
+    }
+
+    // Per-day summary
+    const summaries = Object.values(dayMap).map(d => {
+      const starts     = d.drives.map(e => e.start).filter(Boolean).sort()
+      const ends       = d.drives.map(e => e.end).filter(Boolean).sort()
+      const firstStart = starts[0]
+      const lastEnd    = ends[ends.length - 1]
+      const spanSec    = (firstStart && lastEnd)
+        ? (new Date(lastEnd) - new Date(firstStart)) / 1000 : 0
+      return {
+        date:         d.date,
+        drivesCount:  d.drives.length,
+        driveSec:     d.driveSec,
+        km:           d.km,
+        maxSpeed:     d.maxSpeed,
+        firstStart,
+        lastEnd,
+        spanSec,
+        stopWithinSec: Math.max(0, spanSec - d.driveSec),
+      }
+    }).sort((a, b) => a.date.localeCompare(b.date))
+
+    setRows(summaries)
+    setLoading(false)
+  }
+
+  const totals = useMemo(() => {
+    if (!rows) return null
+    return {
+      days:     rows.length,
+      drives:   rows.reduce((s, r) => s + r.drivesCount, 0),
+      driveSec: rows.reduce((s, r) => s + r.driveSec, 0),
+      stopSec:  rows.reduce((s, r) => s + r.stopWithinSec, 0),
+      km:       rows.reduce((s, r) => s + r.km, 0),
+      maxSpeed: rows.reduce((s, r) => Math.max(s, r.maxSpeed), 0),
+    }
+  }, [rows])
+
+  return (
+    <div className="p-6">
+      <div className="mb-5">
+        <h1 className="text-xl font-semibold text-gray-800">⏱️ Vrijeme rada vozila</h1>
+        <p className="text-sm text-gray-400 mt-0.5">Učitaj GPS/telematics izvještaj (XLS/XLSX) za analizu rada vozila po danima</p>
+      </div>
+
+      {/* Upload zona */}
+      <div className="bg-white border-2 border-dashed border-gray-200 rounded-xl p-8 mb-5 text-center shadow-sm">
+        {libError
+          ? <p className="text-red-500 text-sm">⚠️ {libError}</p>
+          : !xlibReady
+          ? <p className="text-gray-400 text-sm">⏳ Učitavanje biblioteke...</p>
+          : (
+          <>
+            <div className="text-4xl mb-3">📊</div>
+            <p className="text-gray-700 font-medium mb-1">Učitaj GPS izvještaj</p>
+            <p className="text-sm text-gray-400 mb-4">Podržani formati: XLS, XLSX</p>
+            <label className="cursor-pointer inline-block px-5 py-2.5 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 font-medium transition-colors">
+              📂 Odaberi fajl
+              <input type="file" accept=".xls,.xlsx" onChange={handleFile} className="hidden"/>
+            </label>
+            {filename && <p className="text-xs text-gray-400 mt-3">📄 {filename}</p>}
+          </>
+        )}
+      </div>
+
+      {loading && (
+        <div className="text-center py-20 text-gray-400">⏳ Parsiranje fajla...</div>
+      )}
+
+      {rows && !loading && (
+        <>
+          {/* Summary kartice */}
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-5">
+            {[
+              { label: 'Radnih dana',    value: totals.days,                      cls: 'bg-blue-600 text-white' },
+              { label: 'Vožnji ukupno',  value: totals.drives,                    cls: 'bg-indigo-600 text-white' },
+              { label: 'Ukupno vožnja',  value: fmtSec(totals.driveSec),          cls: 'bg-green-600 text-white' },
+              { label: 'Ukupno stajanje',value: fmtSec(totals.stopSec),           cls: 'bg-amber-500 text-white' },
+              { label: 'Ukupno km',      value: `${totals.km.toFixed(1)} km`,     cls: 'bg-gray-50 text-gray-700 border border-gray-200' },
+              { label: 'Maks. brzina',   value: `${totals.maxSpeed} km/h`,        cls: 'bg-gray-50 text-gray-700 border border-gray-200' },
+            ].map(c => (
+              <div key={c.label} className={`rounded-xl p-3 ${c.cls}`}>
+                <div className="text-xs opacity-70 mb-1">{c.label}</div>
+                <div className="font-bold text-xl">{c.value}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Per-day tabela */}
+          <div className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm">
+            <div className="px-4 py-2.5 border-b border-gray-100 text-xs text-gray-400 font-medium">
+              Prikaz po danima — {rows.length} radnih dana
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-gray-50 border-b border-gray-200 text-left">
+                    <th className="px-4 py-3 font-medium text-gray-600">Datum</th>
+                    <th className="px-4 py-3 font-medium text-gray-600 text-center">Vožnji</th>
+                    <th className="px-4 py-3 font-medium text-gray-600">Početak → Kraj</th>
+                    <th className="px-4 py-3 font-medium text-gray-600 text-right">Ukupno</th>
+                    <th className="px-4 py-3 font-medium text-gray-600 text-right">Vožnja</th>
+                    <th className="px-4 py-3 font-medium text-gray-600 text-right">Stajanje</th>
+                    <th className="px-4 py-3 font-medium text-gray-600 text-right">Km</th>
+                    <th className="px-4 py-3 font-medium text-gray-600 text-right">Maks.</th>
+                    <th className="px-4 py-3 font-medium text-gray-600 w-28">Vožnja %</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((r, i) => {
+                    const drivePct = r.spanSec > 0 ? (r.driveSec / r.spanSec) * 100 : 0
+                    return (
+                      <tr key={r.date} className={`border-b border-gray-100 ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50/40'}`}>
+                        <td className="px-4 py-2.5 font-medium text-gray-800 whitespace-nowrap">
+                          {fmtDate(r.date)}
+                        </td>
+                        <td className="px-4 py-2.5 text-center text-gray-600">{r.drivesCount}</td>
+                        <td className="px-4 py-2.5 text-gray-600 font-mono text-xs whitespace-nowrap">
+                          {fmtTime(r.firstStart)} → {fmtTime(r.lastEnd)}
+                        </td>
+                        <td className="px-4 py-2.5 text-right font-semibold text-gray-800">{fmtSec(r.spanSec)}</td>
+                        <td className="px-4 py-2.5 text-right text-green-700 font-medium">{fmtSec(r.driveSec)}</td>
+                        <td className="px-4 py-2.5 text-right text-amber-600">{fmtSec(r.stopWithinSec)}</td>
+                        <td className="px-4 py-2.5 text-right text-gray-700 font-mono text-xs">{r.km.toFixed(1)}</td>
+                        <td className="px-4 py-2.5 text-right text-gray-500 text-xs">
+                          {r.maxSpeed > 0 ? `${r.maxSpeed} km/h` : '—'}
+                        </td>
+                        <td className="px-4 py-2.5">
+                          <div className="w-full bg-gray-100 rounded-full h-2">
+                            <div className="bg-green-500 h-2 rounded-full" style={{ width: `${drivePct}%` }}/>
+                          </div>
+                          <div className="text-xs text-gray-400 mt-0.5 text-right">{drivePct.toFixed(0)}%</div>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+                <tfoot>
+                  <tr className="bg-blue-50 border-t-2 border-blue-200 font-semibold text-blue-800">
+                    <td className="px-4 py-3">UKUPNO ({totals.days} dana)</td>
+                    <td className="px-4 py-3 text-center">{totals.drives}</td>
+                    <td className="px-4 py-3"/>
+                    <td className="px-4 py-3"/>
+                    <td className="px-4 py-3 text-right text-green-700">{fmtSec(totals.driveSec)}</td>
+                    <td className="px-4 py-3 text-right text-amber-600">{fmtSec(totals.stopSec)}</td>
+                    <td className="px-4 py-3 text-right font-mono">{totals.km.toFixed(1)}</td>
+                    <td className="px-4 py-3 text-right">{totals.maxSpeed} km/h</td>
+                    <td/>
+                  </tr>
+                </tfoot>
+              </table>
+              {rows.length === 0 && (
+                <div className="text-center py-16 text-gray-400">Nema vožnji u učitanom fajlu.</div>
+              )}
+            </div>
+          </div>
+        </>
+      )}
     </div>
   )
 }
