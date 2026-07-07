@@ -25,23 +25,30 @@ export default function SupplierAccounting() {
   const canEdit = canWrite('admin_accounting')
 
   // Data
-  const [suppliers, setSuppliers] = useState([])
-  const [transfers, setTransfers] = useState([])
-  const [payments,  setPayments]  = useState([])
-  const [loading,   setLoading]   = useState(false)
+  const [suppliers,    setSuppliers]    = useState([])
+  const [transfers,    setTransfers]    = useState([])
+  const [groupOrders,  setGroupOrders]  = useState([])
+  const [payments,     setPayments]     = useState([])
+  const [loading,      setLoading]      = useState(false)
 
   // Filters
   const [fSupplier, setFSupplier] = useState('')
   const [dateFrom,  setDateFrom]  = useState(monthAgo())
   const [dateTo,    setDateTo]    = useState(today())
-  const [tab,       setTab]       = useState('unpaid') // 'unpaid' | 'paid' | 'payments'
+  const [tab,       setTab]       = useState('unpaid') // 'unpaid'|'paid'|'group'|'payments'
 
-  // Selection & payment modal
-  const [selected, setSelected] = useState(new Set())   // set of transfer IDs
-  const [modal,    setModal]    = useState(null)         // null | 'pay' | 'delete_payment'
-  const [payForm,  setPayForm]  = useState({ date: today(), amount: '', notes: '' })
-  const [deleteTarget, setDeleteTarget] = useState(null) // payment id to delete
-  const [saving,   setSaving]   = useState(false)
+  // Individual transfers: selection & payment modal
+  const [selected,     setSelected]     = useState(new Set())
+  const [modal,        setModal]        = useState(null)
+  const [payForm,      setPayForm]      = useState({ date: today(), amount: '', notes: '' })
+  const [deleteTarget, setDeleteTarget] = useState(null)
+  const [saving,       setSaving]       = useState(false)
+
+  // Group orders: selection
+  const [selectedGroups, setSelectedGroups] = useState(new Set())
+  const [savingGroup,    setSavingGroup]     = useState(false)
+  const [groupModal,     setGroupModal]      = useState(false)
+  const [groupPayForm,   setGroupPayForm]    = useState({ date: today(), amount: '', notes: '' })
 
   // ── Load ────────────────────────────────────────────────────────
   useEffect(() => { loadSuppliers() }, [])
@@ -55,6 +62,7 @@ export default function SupplierAccounting() {
   async function load() {
     setLoading(true)
     setSelected(new Set())
+    setSelectedGroups(new Set())
 
     let tq = supabase
       .from('transfers')
@@ -67,6 +75,17 @@ export default function SupplierAccounting() {
 
     if (fSupplier) tq = tq.eq('supplier_id', fSupplier)
 
+    let gq = supabase
+      .from('group_transfer_orders')
+      .select('id,date,nalog_id,type,owrt,bus_type,bus_label,airport,bucket,price,supplier_id,payment_id,arr_flight,arr_pax,dep_flight,dep_pax,flight_name,pax,suppliers(name)')
+      .gte('date', dateFrom)
+      .lte('date', dateTo)
+      .order('date', { ascending: true })
+      .limit(500)
+
+    if (fSupplier) gq = gq.eq('supplier_id', fSupplier)
+    else gq = gq.not('supplier_id', 'is', null)
+
     let pq = supabase
       .from('supplier_payments')
       .select('*,suppliers(name)')
@@ -77,63 +96,60 @@ export default function SupplierAccounting() {
 
     if (fSupplier) pq = pq.eq('supplier_id', fSupplier)
 
-    const [{ data: td }, { data: pd }] = await Promise.all([tq, pq])
+    const [{ data: td }, { data: gd }, { data: pd }] = await Promise.all([tq, gq, pq])
     setTransfers(td || [])
+    setGroupOrders(gd || [])
     setPayments(pd || [])
     setLoading(false)
   }
 
   // ── Derived lists ────────────────────────────────────────────────
-  const unpaidTransfers = useMemo(
-    () => transfers.filter(t => !t.payment_id),
-    [transfers]
-  )
-  const paidTransfers = useMemo(
-    () => transfers.filter(t => !!t.payment_id),
-    [transfers]
-  )
+  const unpaidTransfers  = useMemo(() => transfers.filter(t => !t.payment_id),  [transfers])
+  const paidTransfers    = useMemo(() => transfers.filter(t =>  !!t.payment_id), [transfers])
+  const unpaidGroups     = useMemo(() => groupOrders.filter(g => !g.payment_id), [groupOrders])
+  const paidGroups       = useMemo(() => groupOrders.filter(g =>  !!g.payment_id), [groupOrders])
   const displayedTransfers = tab === 'paid' ? paidTransfers : unpaidTransfers
 
   // ── Summary ──────────────────────────────────────────────────────
   const summary = useMemo(() => {
-    const invoiced  = transfers.reduce((s, t) => s + (t.supplier_price || 0), 0)
-    const paid      = paidTransfers.reduce((s, t) => s + (t.supplier_price || 0), 0)
-    const paymentsTotal = payments.reduce((s, p) => s + Number(p.amount), 0)
+    const invInd  = transfers.reduce((s, t) => s + (t.supplier_price || 0), 0)
+    const paidInd = paidTransfers.reduce((s, t) => s + (t.supplier_price || 0), 0)
+    const invGrp  = groupOrders.reduce((s, g) => s + (g.price || 0), 0)
+    const paidGrp = paidGroups.reduce((s, g) => s + (g.price || 0), 0)
     return {
-      invoiced,
-      paid,
-      outstanding: invoiced - paid,
-      paymentsTotal,
+      invoiced:    invInd + invGrp,
+      paid:        paidInd + paidGrp,
+      outstanding: (invInd + invGrp) - (paidInd + paidGrp),
+      paymentsTotal: payments.reduce((s, p) => s + Number(p.amount), 0),
       unpaidCount: unpaidTransfers.length,
       paidCount:   paidTransfers.length,
+      grpUnpaid:   unpaidGroups.length,
+      grpPaid:     paidGroups.length,
     }
-  }, [transfers, paidTransfers, unpaidTransfers, payments])
+  }, [transfers, groupOrders, paidTransfers, paidGroups, unpaidTransfers, unpaidGroups, payments])
 
   // ── Selection helpers ─────────────────────────────────────────────
   const selectedTotal = useMemo(
-    () => unpaidTransfers
-      .filter(t => selected.has(t.id))
-      .reduce((s, t) => s + (t.supplier_price || 0), 0),
+    () => unpaidTransfers.filter(t => selected.has(t.id)).reduce((s, t) => s + (t.supplier_price || 0), 0),
     [selected, unpaidTransfers]
+  )
+  const selectedGroupTotal = useMemo(
+    () => unpaidGroups.filter(g => selectedGroups.has(g.id)).reduce((s, g) => s + (g.price || 0), 0),
+    [selectedGroups, unpaidGroups]
   )
 
   function toggleSelect(id) {
-    setSelected(prev => {
-      const n = new Set(prev)
-      n.has(id) ? n.delete(id) : n.add(id)
-      return n
-    })
+    setSelected(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
   }
+  function selectAll() { setSelected(new Set(unpaidTransfers.map(t => t.id))) }
+  function clearSelection() { setSelected(new Set()) }
 
-  function selectAll() {
-    setSelected(new Set(unpaidTransfers.map(t => t.id)))
+  function toggleGroupSelect(id) {
+    setSelectedGroups(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
   }
+  function selectAllGroups() { setSelectedGroups(new Set(unpaidGroups.map(g => g.id))) }
+  function clearGroupSelection() { setSelectedGroups(new Set()) }
 
-  function clearSelection() {
-    setSelected(new Set())
-  }
-
-  // Auto-odabir po iznosu (avans)
   function autoSelectByAmount(amount) {
     const amt = Number(amount)
     if (!amt) return
@@ -141,15 +157,12 @@ export default function SupplierAccounting() {
     const ids = new Set()
     for (const t of [...unpaidTransfers].sort((a, b) => a.transfer_date.localeCompare(b.transfer_date))) {
       const price = t.supplier_price || 0
-      if (running + price <= amt + 0.01) {
-        ids.add(t.id)
-        running += price
-      }
+      if (running + price <= amt + 0.01) { ids.add(t.id); running += price }
     }
     setSelected(ids)
   }
 
-  // ── Payment actions ───────────────────────────────────────────────
+  // ── Payment actions (individual transfers) ────────────────────────
   function openPayModal() {
     if (selected.size === 0) return
     setPayForm({ date: today(), amount: String(selectedTotal), notes: '' })
@@ -160,8 +173,6 @@ export default function SupplierAccounting() {
     if (!payForm.date || selected.size === 0) return
     setSaving(true)
 
-    // Determine supplier: all selected transfers should share the same supplier
-    // (if multiple suppliers selected, we create one payment per supplier)
     const bySupplier = {}
     for (const t of unpaidTransfers.filter(t => selected.has(t.id))) {
       const sid = t.supplier_id
@@ -169,43 +180,79 @@ export default function SupplierAccounting() {
       bySupplier[sid].ids.push(t.id)
       bySupplier[sid].total += t.supplier_price || 0
     }
-
     const supplierIds = Object.keys(bySupplier)
 
     for (const sid of supplierIds) {
       const grp = bySupplier[sid]
-      // If single supplier, use user-entered amount; otherwise use actual total per supplier
-      const amount = supplierIds.length === 1
-        ? (Number(payForm.amount) || grp.total)
-        : grp.total
-
+      const amount = supplierIds.length === 1 ? (Number(payForm.amount) || grp.total) : grp.total
       const { data: pay, error } = await supabase
         .from('supplier_payments')
         .insert({ supplier_id: sid, payment_date: payForm.date, amount, notes: payForm.notes?.trim() || null })
-        .select('id')
-        .single()
-
+        .select('id').single()
       if (error || !pay) { console.error(error); continue }
-
-      await supabase
-        .from('transfers')
-        .update({ payment_id: pay.id })
-        .in('id', grp.ids)
+      await supabase.from('transfers').update({ payment_id: pay.id }).in('id', grp.ids)
     }
 
-    setSaving(false)
-    setModal(null)
-    setSelected(new Set())
-    load()
+    setSaving(false); setModal(null); setSelected(new Set()); load()
   }
 
   async function unmarkPayment(paymentId) {
     if (!confirm('Poništiti ovu uplatu? Transferi će biti označeni kao neplaćeni.')) return
-    // Unlink transfers
     await supabase.from('transfers').update({ payment_id: null }).eq('payment_id', paymentId)
-    // Delete payment record
+    await supabase.from('group_transfer_orders').update({ payment_id: null }).eq('payment_id', paymentId)
     await supabase.from('supplier_payments').delete().eq('id', paymentId)
     load()
+  }
+
+  // ── Payment actions (group orders) ───────────────────────────────
+  function openGroupPayModal() {
+    if (selectedGroups.size === 0) return
+    setGroupPayForm({ date: today(), amount: String(selectedGroupTotal), notes: '' })
+    setGroupModal(true)
+  }
+
+  async function saveGroupPayment() {
+    if (!groupPayForm.date || selectedGroups.size === 0) return
+    setSavingGroup(true)
+
+    const bySupplier = {}
+    for (const g of unpaidGroups.filter(g => selectedGroups.has(g.id))) {
+      const sid = g.supplier_id
+      if (!bySupplier[sid]) bySupplier[sid] = { ids: [], total: 0 }
+      bySupplier[sid].ids.push(g.id)
+      bySupplier[sid].total += g.price || 0
+    }
+    const supplierIds = Object.keys(bySupplier)
+
+    for (const sid of supplierIds) {
+      const grp = bySupplier[sid]
+      const amount = supplierIds.length === 1 ? (Number(groupPayForm.amount) || grp.total) : grp.total
+      const { data: pay, error } = await supabase
+        .from('supplier_payments')
+        .insert({ supplier_id: sid, payment_date: groupPayForm.date, amount, notes: groupPayForm.notes?.trim() || null })
+        .select('id').single()
+      if (error || !pay) { console.error(error); continue }
+      await supabase.from('group_transfer_orders').update({ payment_id: pay.id }).in('id', grp.ids)
+    }
+
+    setSavingGroup(false); setGroupModal(false); setSelectedGroups(new Set()); load()
+  }
+
+  async function unmarkGroupOrder(orderId) {
+    await supabase.from('group_transfer_orders').update({ payment_id: null }).eq('id', orderId)
+    load()
+  }
+
+  // ── Helpers ───────────────────────────────────────────────────────
+  function groupOrderLabel(g) {
+    if (g.type === 'RT') return `RT · ${g.arr_flight || '?'} ⇄ ${g.dep_flight || '?'}`
+    if (g.type === 'arr') return `OW-ARR · ${g.flight_name || '?'}`
+    return `OW-DEP · ${g.flight_name || '?'}`
+  }
+
+  function groupOrderPax(g) {
+    if (g.type === 'RT') return `${g.arr_pax || 0}↓ ${g.dep_pax || 0}↑`
+    return `${g.pax || 0} pax`
   }
 
   // ── Render ────────────────────────────────────────────────────────
@@ -256,10 +303,10 @@ export default function SupplierAccounting() {
       {/* Summary kartice */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
         {[
-          { label: 'Ukupno zaračunato', value: fmtEur(summary.invoiced),     cls: 'bg-gray-700 text-white' },
-          { label: 'Plaćeno',           value: fmtEur(summary.paid),         cls: 'bg-green-600 text-white' },
-          { label: 'Dugovanje',         value: fmtEur(summary.outstanding),  cls: summary.outstanding > 0 ? 'bg-red-500 text-white' : 'bg-green-700 text-white' },
-          { label: 'Neplaćenih vožnji', value: summary.unpaidCount,          cls: 'bg-gray-50 border border-gray-200 text-gray-700' },
+          { label: 'Ukupno zaračunato', value: fmtEur(summary.invoiced),    cls: 'bg-gray-700 text-white' },
+          { label: 'Plaćeno',           value: fmtEur(summary.paid),        cls: 'bg-green-600 text-white' },
+          { label: 'Dugovanje',         value: fmtEur(summary.outstanding), cls: summary.outstanding > 0 ? 'bg-red-500 text-white' : 'bg-green-700 text-white' },
+          { label: 'Neplaćenih',        value: `${summary.unpaidCount} ind · ${summary.grpUnpaid} grp`, cls: 'bg-gray-50 border border-gray-200 text-gray-700' },
         ].map(c => (
           <div key={c.label} className={`rounded-xl p-4 ${c.cls}`}>
             <div className="text-xs opacity-70 mb-1">{c.label}</div>
@@ -269,10 +316,11 @@ export default function SupplierAccounting() {
       </div>
 
       {/* Tabs */}
-      <div className="flex items-center gap-1 mb-4 border-b border-gray-200">
+      <div className="flex items-center gap-1 mb-4 border-b border-gray-200 flex-wrap">
         {[
           ['unpaid',   `⏳ Neplaćeno (${summary.unpaidCount})`],
           ['paid',     `✅ Plaćeno (${summary.paidCount})`],
+          ['group',    `🚌 Grupni (${summary.grpUnpaid + summary.grpPaid})`],
           ['payments', `💳 Uplate (${payments.length})`],
         ].map(([v, l]) => (
           <button key={v} onClick={() => setTab(v)}
@@ -283,42 +331,42 @@ export default function SupplierAccounting() {
             }`}>{l}</button>
         ))}
 
-        {/* Selection action bar */}
+        {/* Individual transfer action bar */}
         {tab === 'unpaid' && selected.size > 0 && canEdit && (
           <div className="ml-auto flex items-center gap-2">
             <span className="text-sm text-gray-500">{selected.size} odabrano · <span className="font-semibold text-gray-800">{fmtEur(selectedTotal)}</span></span>
-            <button onClick={clearSelection}
-              className="px-3 py-1.5 text-xs border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-500">
-              Otkaži
-            </button>
-            <button onClick={openPayModal}
-              className="px-4 py-1.5 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium">
-              💳 Unesi uplatu
-            </button>
+            <button onClick={clearSelection} className="px-3 py-1.5 text-xs border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-500">Otkaži</button>
+            <button onClick={openPayModal} className="px-4 py-1.5 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium">💳 Unesi uplatu</button>
           </div>
         )}
-
-        {/* Select all / avans buttons */}
         {tab === 'unpaid' && selected.size === 0 && unpaidTransfers.length > 0 && canEdit && (
           <div className="ml-auto flex items-center gap-2">
-            <button onClick={selectAll}
-              className="px-3 py-1.5 text-xs border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-600">
-              Odaberi sve
-            </button>
+            <button onClick={selectAll} className="px-3 py-1.5 text-xs border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-600">Odaberi sve</button>
             <button onClick={() => {
               const amt = prompt('Unesi iznos avansa (€):')
               if (amt) { autoSelectByAmount(amt); setPayForm(f => ({ ...f, amount: amt })) }
-            }}
-              className="px-3 py-1.5 text-xs border border-blue-200 text-blue-600 rounded-lg hover:bg-blue-50">
-              🔢 Avans
-            </button>
+            }} className="px-3 py-1.5 text-xs border border-blue-200 text-blue-600 rounded-lg hover:bg-blue-50">🔢 Avans</button>
+          </div>
+        )}
+
+        {/* Group orders action bar */}
+        {tab === 'group' && selectedGroups.size > 0 && canEdit && (
+          <div className="ml-auto flex items-center gap-2">
+            <span className="text-sm text-gray-500">{selectedGroups.size} odabrano · <span className="font-semibold text-gray-800">{fmtEur(selectedGroupTotal)}</span></span>
+            <button onClick={clearGroupSelection} className="px-3 py-1.5 text-xs border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-500">Otkaži</button>
+            <button onClick={openGroupPayModal} className="px-4 py-1.5 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium">💳 Unesi uplatu</button>
+          </div>
+        )}
+        {tab === 'group' && selectedGroups.size === 0 && unpaidGroups.length > 0 && canEdit && (
+          <div className="ml-auto flex items-center gap-2">
+            <button onClick={selectAllGroups} className="px-3 py-1.5 text-xs border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-600">Odaberi sve</button>
           </div>
         )}
       </div>
 
       {loading && <div className="text-center py-20 text-gray-400">⏳ Učitavanje...</div>}
 
-      {/* ── Tab: Neplaćeno / Plaćeno ─────────────────────────────── */}
+      {/* ── Tab: Neplaćeno / Plaćeno (individual) ───────────────── */}
       {!loading && (tab === 'unpaid' || tab === 'paid') && (
         <div className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm">
           {displayedTransfers.length === 0 ? (
@@ -355,14 +403,11 @@ export default function SupplierAccounting() {
                         {tab === 'unpaid' && canEdit && (
                           <td className="px-3 py-2.5">
                             <input type="checkbox" checked={isSel} onChange={() => toggleSelect(t.id)}
-                              onClick={e => e.stopPropagation()}
-                              className="w-4 h-4 rounded accent-blue-600"/>
+                              onClick={e => e.stopPropagation()} className="w-4 h-4 rounded accent-blue-600"/>
                           </td>
                         )}
                         <td className="px-4 py-2.5 text-gray-600 whitespace-nowrap">{fmtDate(t.transfer_date)}</td>
-                        <td className="px-4 py-2.5 font-medium text-orange-700">
-                          {t.suppliers?.name || '—'}
-                        </td>
+                        <td className="px-4 py-2.5 font-medium text-orange-700">{t.suppliers?.name || '—'}</td>
                         <td className="px-4 py-2.5">
                           <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${DIR_COLOR[t.type] || 'bg-gray-100 text-gray-600'}`}>
                             {t.type === 'arr' ? 'ARR' : 'DEP'}
@@ -383,8 +428,7 @@ export default function SupplierAccounting() {
                         )}
                         {tab === 'paid' && canEdit && (
                           <td className="px-4 py-2.5 text-right">
-                            <button
-                              onClick={() => unmarkPayment(t.payment_id)}
+                            <button onClick={() => unmarkPayment(t.payment_id)}
                               className="text-xs text-red-400 hover:text-red-600 transition-colors">
                               Poništi
                             </button>
@@ -397,9 +441,7 @@ export default function SupplierAccounting() {
                 <tfoot>
                   <tr className={`font-semibold border-t-2 ${tab === 'paid' ? 'bg-green-50 border-green-200 text-green-800' : 'bg-gray-50 border-gray-200 text-gray-700'}`}>
                     {tab === 'unpaid' && canEdit && <td/>}
-                    <td colSpan={6} className="px-4 py-3">
-                      UKUPNO — {displayedTransfers.length} vožnji
-                    </td>
+                    <td colSpan={6} className="px-4 py-3">UKUPNO — {displayedTransfers.length} vožnji</td>
                     <td className="px-4 py-3 text-right text-base">
                       {fmtEur(displayedTransfers.reduce((s,t) => s + (t.supplier_price||0), 0))}
                     </td>
@@ -407,6 +449,129 @@ export default function SupplierAccounting() {
                   </tr>
                 </tfoot>
               </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Tab: Grupni transferi ────────────────────────────────── */}
+      {!loading && tab === 'group' && (
+        <div className="space-y-4">
+          {/* Neplaćeni grupni */}
+          <div>
+            <h3 className="text-sm font-semibold text-gray-600 mb-2">⏳ Neplaćeni grupni nalozi ({unpaidGroups.length})</h3>
+            <div className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm">
+              {unpaidGroups.length === 0 ? (
+                <div className="py-10 text-center text-gray-400 text-sm">Nema neplaćenih grupnih naloga za odabrani period.</div>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-gray-50 border-b border-gray-200 text-left">
+                      {canEdit && <th className="px-3 py-3 w-8"/>}
+                      <th className="px-4 py-3 font-medium text-gray-600">Datum</th>
+                      <th className="px-4 py-3 font-medium text-gray-600">Supla jer</th>
+                      <th className="px-4 py-3 font-medium text-gray-600">Nalog</th>
+                      <th className="px-4 py-3 font-medium text-gray-600">Autobus</th>
+                      <th className="px-4 py-3 font-medium text-gray-600">Let</th>
+                      <th className="px-4 py-3 font-medium text-gray-600 text-center">Pax</th>
+                      <th className="px-4 py-3 font-medium text-gray-600 text-right">Cijena</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {unpaidGroups.map((g, i) => {
+                      const isSel = selectedGroups.has(g.id)
+                      return (
+                        <tr key={g.id}
+                          className={`border-b border-gray-100 transition-colors ${
+                            isSel ? 'bg-blue-50' : i % 2 === 0 ? 'bg-white' : 'bg-gray-50/40'
+                          } ${canEdit ? 'cursor-pointer hover:bg-blue-50/60' : ''}`}
+                          onClick={canEdit ? () => toggleGroupSelect(g.id) : undefined}
+                        >
+                          {canEdit && (
+                            <td className="px-3 py-2.5">
+                              <input type="checkbox" checked={isSel} onChange={() => toggleGroupSelect(g.id)}
+                                onClick={e => e.stopPropagation()} className="w-4 h-4 rounded accent-blue-600"/>
+                            </td>
+                          )}
+                          <td className="px-4 py-2.5 text-gray-600 whitespace-nowrap">{fmtDate(g.date)}</td>
+                          <td className="px-4 py-2.5 font-medium text-orange-700">{g.suppliers?.name || '—'}</td>
+                          <td className="px-4 py-2.5">
+                            <span className={`text-xs px-1.5 py-0.5 rounded font-bold mr-1
+                              ${g.type === 'RT' ? 'bg-emerald-100 text-emerald-700'
+                                : g.type === 'arr' ? 'bg-sky-100 text-sky-700'
+                                : 'bg-amber-100 text-amber-800'}`}>
+                              {g.type === 'RT' ? 'RT' : g.owrt || 'OW'}
+                            </span>
+                            <span className="text-xs text-gray-500">{groupOrderLabel(g)}</span>
+                          </td>
+                          <td className="px-4 py-2.5 text-gray-600 text-xs">{g.bus_label}</td>
+                          <td className="px-4 py-2.5 text-gray-500 font-mono text-xs">{g.airport}</td>
+                          <td className="px-4 py-2.5 text-center font-mono text-gray-700">{groupOrderPax(g)}</td>
+                          <td className="px-4 py-2.5 text-right font-semibold text-gray-800">{fmtEur(g.price)}</td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                  <tfoot>
+                    <tr className="bg-gray-50 border-t-2 border-gray-200 font-semibold text-gray-700">
+                      {canEdit && <td/>}
+                      <td colSpan={6} className="px-4 py-3">UKUPNO — {unpaidGroups.length} naloga</td>
+                      <td className="px-4 py-3 text-right">{fmtEur(unpaidGroups.reduce((s,g)=>s+(g.price||0),0))}</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              )}
+            </div>
+          </div>
+
+          {/* Plaćeni grupni */}
+          {paidGroups.length > 0 && (
+            <div>
+              <h3 className="text-sm font-semibold text-gray-600 mb-2">✅ Plaćeni grupni nalozi ({paidGroups.length})</h3>
+              <div className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-gray-50 border-b border-gray-200 text-left">
+                      <th className="px-4 py-3 font-medium text-gray-600">Datum</th>
+                      <th className="px-4 py-3 font-medium text-gray-600">Supla jer</th>
+                      <th className="px-4 py-3 font-medium text-gray-600">Nalog</th>
+                      <th className="px-4 py-3 font-medium text-gray-600">Autobus</th>
+                      <th className="px-4 py-3 font-medium text-gray-600 text-right">Cijena</th>
+                      <th className="px-4 py-3 font-medium text-gray-600">Uplata</th>
+                      {canEdit && <th className="px-4 py-3 w-20"/>}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {paidGroups.map((g, i) => (
+                      <tr key={g.id} className={`border-b border-gray-100 ${i%2===0?'bg-white':'bg-gray-50/40'}`}>
+                        <td className="px-4 py-2.5 text-gray-600 whitespace-nowrap">{fmtDate(g.date)}</td>
+                        <td className="px-4 py-2.5 font-medium text-orange-700">{g.suppliers?.name || '—'}</td>
+                        <td className="px-4 py-2.5 text-xs text-gray-500">{groupOrderLabel(g)}</td>
+                        <td className="px-4 py-2.5 text-gray-600 text-xs">{g.bus_label}</td>
+                        <td className="px-4 py-2.5 text-right font-semibold text-gray-800">{fmtEur(g.price)}</td>
+                        <td className="px-4 py-2.5 text-xs text-green-700">
+                          ✅ {fmtDate(payments.find(p => p.id === g.payment_id)?.payment_date)}
+                        </td>
+                        {canEdit && (
+                          <td className="px-4 py-2.5 text-right">
+                            <button onClick={() => unmarkGroupOrder(g.id)}
+                              className="text-xs text-red-400 hover:text-red-600 transition-colors">
+                              Poništi
+                            </button>
+                          </td>
+                        )}
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr className="bg-green-50 border-t-2 border-green-200 font-semibold text-green-800">
+                      <td colSpan={4} className="px-4 py-3">UKUPNO — {paidGroups.length} naloga</td>
+                      <td className="px-4 py-3 text-right">{fmtEur(paidGroups.reduce((s,g)=>s+(g.price||0),0))}</td>
+                      <td colSpan={canEdit ? 2 : 1}/>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
             </div>
           )}
         </div>
@@ -431,20 +596,24 @@ export default function SupplierAccounting() {
               </thead>
               <tbody>
                 {payments.map((p, i) => {
-                  const linkedCount = transfers.filter(t => t.payment_id === p.id).length
-                  const linkedTotal = transfers.filter(t => t.payment_id === p.id)
-                    .reduce((s,t) => s + (t.supplier_price||0), 0)
+                  const linkedInd  = transfers.filter(t => t.payment_id === p.id)
+                  const linkedGrp  = groupOrders.filter(g => g.payment_id === p.id)
+                  const linkedTotal = [...linkedInd, ...linkedGrp].reduce((s, x) => s + (x.supplier_price || x.price || 0), 0)
+                  const linkedCount = linkedInd.length + linkedGrp.length
                   return (
                     <tr key={p.id} className={`border-b border-gray-100 ${i%2===0?'bg-white':'bg-gray-50/40'}`}>
                       <td className="px-4 py-2.5 font-medium text-gray-800">{fmtDate(p.payment_date)}</td>
                       <td className="px-4 py-2.5 text-orange-700 font-medium">{p.suppliers?.name || '—'}</td>
                       <td className="px-4 py-2.5 text-right">
                         <span className="font-semibold text-green-700">{fmtEur(p.amount)}</span>
-                        {Math.abs(p.amount - linkedTotal) > 0.5 && (
+                        {Math.abs(p.amount - linkedTotal) > 0.5 && linkedCount > 0 && (
                           <div className="text-xs text-amber-500">≠ {fmtEur(linkedTotal)} (transferi)</div>
                         )}
                       </td>
-                      <td className="px-4 py-2.5 text-center text-gray-600">{linkedCount}</td>
+                      <td className="px-4 py-2.5 text-center text-gray-600">
+                        {linkedCount}
+                        {linkedGrp.length > 0 && <span className="text-xs text-emerald-600 ml-1">(+{linkedGrp.length} grp)</span>}
+                      </td>
                       <td className="px-4 py-2.5 text-gray-500 text-xs">{p.notes || '—'}</td>
                       {canEdit && (
                         <td className="px-4 py-2.5 text-right">
@@ -470,26 +639,24 @@ export default function SupplierAccounting() {
         </div>
       )}
 
-      {/* Balans po suplajeru (uvijek vidljiv ako nema filtera) */}
+      {/* Balans po suplajeru */}
       {!loading && !fSupplier && tab !== 'payments' && (
-        <BalanceBySupplier transfers={transfers} payments={payments} />
+        <BalanceBySupplier transfers={transfers} groupOrders={groupOrders} payments={payments} />
       )}
 
-      {/* ── Modal: Nova uplata ───────────────────────────────────── */}
+      {/* ── Modal: Nova uplata (ind. transferi) ─────────────────── */}
       {modal === 'pay' && (
         <Modal
           title="💳 Nova uplata"
           onClose={() => setModal(null)}
           footer={<>
             <button onClick={() => setModal(null)} className="btn-ghost">Otkaži</button>
-            <button onClick={savePayment} disabled={saving || selected.size === 0}
-              className="btn-primary">
+            <button onClick={savePayment} disabled={saving || selected.size === 0} className="btn-primary">
               {saving ? 'Čuvanje...' : `Potvrdi uplatu ${fmtEur(Number(payForm.amount) || selectedTotal)}`}
             </button>
           </>}
         >
           <div className="space-y-4">
-            {/* Selected transfers summary */}
             <div className="bg-gray-50 rounded-lg p-3 max-h-40 overflow-y-auto">
               <p className="text-xs font-semibold text-gray-500 mb-2">Odabrane vožnje ({selected.size})</p>
               {unpaidTransfers.filter(t => selected.has(t.id)).map(t => (
@@ -499,27 +666,20 @@ export default function SupplierAccounting() {
                 </div>
               ))}
               <div className="flex justify-between text-sm font-semibold text-gray-800 border-t border-gray-200 mt-2 pt-2">
-                <span>Ukupno vožnji</span>
-                <span>{fmtEur(selectedTotal)}</span>
+                <span>Ukupno</span><span>{fmtEur(selectedTotal)}</span>
               </div>
             </div>
-
-            {/* Datum */}
             <div>
               <label className="block text-xs text-gray-500 mb-1">Datum uplate *</label>
-              <input type="date" value={payForm.date}
-                onChange={e => setPayForm(f => ({ ...f, date: e.target.value }))}
+              <input type="date" value={payForm.date} onChange={e => setPayForm(f => ({ ...f, date: e.target.value }))}
                 className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-blue-300"/>
             </div>
-
-            {/* Iznos */}
             <div>
               <label className="block text-xs text-gray-500 mb-1">Plaćeni iznos (€)</label>
               <div className="flex gap-2">
                 <div className="relative flex-1">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">€</span>
-                  <input type="number" min="0" step="1"
-                    value={payForm.amount}
+                  <input type="number" min="0" step="1" value={payForm.amount}
                     onChange={e => setPayForm(f => ({ ...f, amount: e.target.value }))}
                     className="border border-gray-200 rounded-lg pl-7 pr-3 py-1.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-blue-300"/>
                 </div>
@@ -529,20 +689,70 @@ export default function SupplierAccounting() {
                 </button>
               </div>
               {Number(payForm.amount) !== selectedTotal && payForm.amount !== '' && (
-                <p className="text-xs text-amber-500 mt-1">
-                  ⚠ Razlika: {fmtEur(Math.abs(Number(payForm.amount) - selectedTotal))}
-                  {Number(payForm.amount) < selectedTotal ? ' (djelimična uplata)' : ' (preplaćeno)'}
-                </p>
+                <p className="text-xs text-amber-500 mt-1">⚠ Razlika: {fmtEur(Math.abs(Number(payForm.amount) - selectedTotal))}</p>
               )}
             </div>
-
-            {/* Napomena */}
             <div>
               <label className="block text-xs text-gray-500 mb-1">Napomena / referenca</label>
               <input className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-blue-300"
-                placeholder="npr. bank transfer, gotovina, br. uplatnice..."
-                value={payForm.notes}
-                onChange={e => setPayForm(f => ({ ...f, notes: e.target.value }))}/>
+                placeholder="npr. bank transfer, gotovina..."
+                value={payForm.notes} onChange={e => setPayForm(f => ({ ...f, notes: e.target.value }))}/>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* ── Modal: Nova uplata (grupni) ───────────────────────────── */}
+      {groupModal && (
+        <Modal
+          title="🚌 Uplata za grupne transfere"
+          onClose={() => setGroupModal(false)}
+          footer={<>
+            <button onClick={() => setGroupModal(false)} className="btn-ghost">Otkaži</button>
+            <button onClick={saveGroupPayment} disabled={savingGroup || selectedGroups.size === 0} className="btn-primary">
+              {savingGroup ? 'Čuvanje...' : `Potvrdi uplatu ${fmtEur(Number(groupPayForm.amount) || selectedGroupTotal)}`}
+            </button>
+          </>}
+        >
+          <div className="space-y-4">
+            <div className="bg-gray-50 rounded-lg p-3 max-h-40 overflow-y-auto">
+              <p className="text-xs font-semibold text-gray-500 mb-2">Odabrani nalozi ({selectedGroups.size})</p>
+              {unpaidGroups.filter(g => selectedGroups.has(g.id)).map(g => (
+                <div key={g.id} className="flex justify-between text-xs py-0.5 text-gray-700">
+                  <span>{fmtDate(g.date)} · {g.bus_label} · {groupOrderLabel(g)}</span>
+                  <span className="font-semibold">{fmtEur(g.price)}</span>
+                </div>
+              ))}
+              <div className="flex justify-between text-sm font-semibold text-gray-800 border-t border-gray-200 mt-2 pt-2">
+                <span>Ukupno</span><span>{fmtEur(selectedGroupTotal)}</span>
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Datum uplate *</label>
+              <input type="date" value={groupPayForm.date}
+                onChange={e => setGroupPayForm(f => ({ ...f, date: e.target.value }))}
+                className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-blue-300"/>
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Plaćeni iznos (€)</label>
+              <div className="flex gap-2">
+                <div className="relative flex-1">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">€</span>
+                  <input type="number" min="0" step="1" value={groupPayForm.amount}
+                    onChange={e => setGroupPayForm(f => ({ ...f, amount: e.target.value }))}
+                    className="border border-gray-200 rounded-lg pl-7 pr-3 py-1.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-blue-300"/>
+                </div>
+                <button onClick={() => setGroupPayForm(f => ({ ...f, amount: String(selectedGroupTotal) }))}
+                  className="px-3 py-1.5 text-xs border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-600 whitespace-nowrap">
+                  = {fmtEur(selectedGroupTotal)}
+                </button>
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Napomena / referenca</label>
+              <input className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-blue-300"
+                placeholder="npr. bank transfer, gotovina..."
+                value={groupPayForm.notes} onChange={e => setGroupPayForm(f => ({ ...f, notes: e.target.value }))}/>
             </div>
           </div>
         </Modal>
@@ -552,19 +762,27 @@ export default function SupplierAccounting() {
 }
 
 // ── Balans po suplajeru (sub-komponenta) ──────────────────────────
-function BalanceBySupplier({ transfers, payments }) {
+function BalanceBySupplier({ transfers, groupOrders, payments }) {
   const bySupplier = useMemo(() => {
     const map = {}
     for (const t of transfers) {
-      const sid = t.supplier_id
-      const name = t.suppliers?.name || '—'
-      if (!map[sid]) map[sid] = { id: sid, name, invoiced: 0, paid: 0, count: 0, paidCount: 0 }
-      map[sid].invoiced += t.supplier_price || 0
-      map[sid].count++
+      const sid = t.supplier_id; const name = t.suppliers?.name || '—'
+      if (!map[sid]) map[sid] = { id: sid, name, invoiced: 0, paid: 0, count: 0, paidCount: 0, grpInvoiced: 0, grpPaid: 0 }
+      map[sid].invoiced += t.supplier_price || 0; map[sid].count++
       if (t.payment_id) { map[sid].paid += t.supplier_price || 0; map[sid].paidCount++ }
     }
-    return Object.values(map).sort((a, b) => (b.invoiced - b.paid) - (a.invoiced - a.paid))
-  }, [transfers])
+    for (const g of groupOrders) {
+      const sid = g.supplier_id; const name = g.suppliers?.name || '—'
+      if (!map[sid]) map[sid] = { id: sid, name, invoiced: 0, paid: 0, count: 0, paidCount: 0, grpInvoiced: 0, grpPaid: 0 }
+      map[sid].grpInvoiced += g.price || 0
+      if (g.payment_id) map[sid].grpPaid += g.price || 0
+    }
+    return Object.values(map).sort((a, b) => {
+      const ao = (a.invoiced + a.grpInvoiced) - (a.paid + a.grpPaid)
+      const bo = (b.invoiced + b.grpInvoiced) - (b.paid + b.grpPaid)
+      return bo - ao
+    })
+  }, [transfers, groupOrders])
 
   if (bySupplier.length === 0) return null
 
@@ -576,7 +794,8 @@ function BalanceBySupplier({ transfers, payments }) {
           <thead>
             <tr className="bg-gray-50 border-b border-gray-200 text-left">
               <th className="px-4 py-3 font-medium text-gray-600">Supla jer</th>
-              <th className="px-4 py-3 font-medium text-gray-600 text-right">Zaračunato</th>
+              <th className="px-4 py-3 font-medium text-gray-600 text-right">Ind. transferi</th>
+              <th className="px-4 py-3 font-medium text-gray-600 text-right">Grupni</th>
               <th className="px-4 py-3 font-medium text-gray-600 text-right">Plaćeno</th>
               <th className="px-4 py-3 font-medium text-gray-600 text-right">Dugovanje</th>
               <th className="px-4 py-3 font-medium text-gray-600 w-28">Naplata %</th>
@@ -584,17 +803,20 @@ function BalanceBySupplier({ transfers, payments }) {
           </thead>
           <tbody>
             {bySupplier.map((s, i) => {
-              const outstanding = s.invoiced - s.paid
-              const pct = s.invoiced > 0 ? (s.paid / s.invoiced) * 100 : 0
+              const totalInv = s.invoiced + s.grpInvoiced
+              const totalPaid = s.paid + s.grpPaid
+              const outstanding = totalInv - totalPaid
+              const pct = totalInv > 0 ? (totalPaid / totalInv) * 100 : 0
               return (
                 <tr key={s.id} className={`border-b border-gray-100 ${i%2===0?'bg-white':'bg-gray-50/40'}`}>
                   <td className="px-4 py-2.5 font-medium text-orange-700">🤝 {s.name}</td>
-                  <td className="px-4 py-2.5 text-right text-gray-700">{`€${s.invoiced.toFixed(0)}`}
-                    <span className="text-xs text-gray-400 ml-1">({s.count})</span>
+                  <td className="px-4 py-2.5 text-right text-gray-700">
+                    {`€${s.invoiced.toFixed(0)}`}<span className="text-xs text-gray-400 ml-1">({s.count})</span>
                   </td>
-                  <td className="px-4 py-2.5 text-right text-green-700 font-medium">{`€${s.paid.toFixed(0)}`}
-                    <span className="text-xs text-gray-400 ml-1">({s.paidCount})</span>
+                  <td className="px-4 py-2.5 text-right text-emerald-700 font-medium">
+                    {s.grpInvoiced > 0 ? `€${s.grpInvoiced.toFixed(0)}` : <span className="text-gray-300">—</span>}
                   </td>
+                  <td className="px-4 py-2.5 text-right text-green-700 font-medium">{`€${totalPaid.toFixed(0)}`}</td>
                   <td className="px-4 py-2.5 text-right font-semibold">
                     <span className={outstanding > 0 ? 'text-red-600' : 'text-green-600'}>
                       {outstanding > 0 ? `€${outstanding.toFixed(0)}` : '✓ Izmireno'}

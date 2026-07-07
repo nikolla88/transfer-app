@@ -822,11 +822,42 @@ async function exportToExcel(nalozi, date) {
 
 // ── Main Page ────────────────────────────────────────────────────────
 export default function GroupSchedule() {
-  const [date,      setDate]      = useState(tomorrow())
-  const [loading,   setLoading]   = useState(false)
-  const [nalozi,    setNalozi]    = useState([])
-  const [exporting, setExporting] = useState(false)
-  const [hasData,   setHasData]   = useState(false)
+  const [date,        setDate]        = useState(tomorrow())
+  const [loading,     setLoading]     = useState(false)
+  const [nalozi,      setNalozi]      = useState([])
+  const [exporting,   setExporting]   = useState(false)
+  const [hasData,     setHasData]     = useState(false)
+  const [suppliers,   setSuppliers]   = useState([])
+  const [busSupplier, setBusSupplier] = useState('')
+  const [confirmed,   setConfirmed]   = useState(false)  // da li je ovaj datum već potvrđen
+  const [confirming,  setConfirming]  = useState(false)
+  const [toast,       setToast]       = useState(null)   // { msg, ok }
+
+  useEffect(() => {
+    supabase.from('suppliers').select('id,name').eq('active', true).order('name')
+      .then(({ data }) => setSuppliers(data || []))
+  }, [])
+
+  // Provjeri da li postoje potvrđeni nalozi za ovaj datum
+  useEffect(() => {
+    supabase.from('group_transfer_orders').select('id,supplier_id', { count: 'exact' })
+      .eq('date', date).limit(1)
+      .then(({ data, count }) => {
+        if (count && count > 0) {
+          setConfirmed(true)
+          if (data?.[0]?.supplier_id && !busSupplier) {
+            setBusSupplier(data[0].supplier_id)
+          }
+        } else {
+          setConfirmed(false)
+        }
+      })
+  }, [date])
+
+  function showToast(msg, ok = true) {
+    setToast({ msg, ok })
+    setTimeout(() => setToast(null), 3500)
+  }
 
   async function load() {
     setLoading(true)
@@ -880,15 +911,76 @@ export default function GroupSchedule() {
     setExporting(false)
   }
 
-  const rtNalozi  = nalozi.filter(n => n.type === 'RT')
+  async function confirmSchedule() {
+    if (!busSupplier) {
+      showToast('Izaberi suplaera autobusa!', false)
+      return
+    }
+    setConfirming(true)
+
+    const rows = nalozi.map(n => ({
+      date,
+      nalog_id:        n.id,
+      type:            n.type,
+      owrt:            n.owrt || null,
+      bus_type:        n.busType,
+      bus_label:       n.busLabel,
+      airport:         n.airport,
+      bucket:          n.bucket,
+      price:           n.price,
+      supplier_id:     busSupplier,
+      // RT polja
+      arr_flight:      n.type === 'RT' ? n.arr.flightName      : null,
+      arr_flight_time: n.type === 'RT' ? (n.arr.flightTime || null) : null,
+      arr_pax:         n.type === 'RT' ? n.arr.pax             : null,
+      dep_flight:      n.type === 'RT' ? n.dep.flightName      : null,
+      dep_flight_time: n.type === 'RT' ? (n.dep.flightTime || null) : null,
+      dep_pax:         n.type === 'RT' ? n.dep.pax             : null,
+      arr_hotels:      n.type === 'RT' ? n.arr.hotels          : null,
+      dep_hotels:      n.type === 'RT' ? n.dep.hotels          : null,
+      // OW polja
+      flight_name:     n.type !== 'RT' ? n.flightName          : null,
+      flight_time:     n.type !== 'RT' ? (n.flightTime || null): null,
+      pax:             n.type !== 'RT' ? n.pax                 : null,
+      hotels:          n.type !== 'RT' ? n.hotels              : null,
+    }))
+
+    // Obriši stare i upiši nove (upsert po date+nalog_id)
+    const { error: delErr } = await supabase
+      .from('group_transfer_orders').delete().eq('date', date)
+    if (delErr) {
+      showToast('Greška pri brisanju starih: ' + delErr.message, false)
+      setConfirming(false)
+      return
+    }
+
+    const { error } = await supabase.from('group_transfer_orders').insert(rows)
+    if (error) {
+      showToast('Greška pri potvrdi: ' + error.message, false)
+    } else {
+      setConfirmed(true)
+      showToast(`Potvrđeno ${rows.length} naloga za ${fmtDate(date)} ✓`)
+    }
+    setConfirming(false)
+  }
+
+  const rtNalozi    = nalozi.filter(n => n.type === 'RT')
   const owArrNalozi = nalozi.filter(n => n.type === 'arr')
   const owDepNalozi = nalozi.filter(n => n.type === 'dep')
   const totalPrice  = nalozi.reduce((s, n) => s + n.price, 0)
 
   return (
     <div className="p-6 max-w-5xl mx-auto">
+      {/* Toast */}
+      {toast && (
+        <div className={`fixed top-4 right-4 z-50 px-4 py-3 rounded-lg shadow-lg text-sm font-medium
+          ${toast.ok ? 'bg-green-100 text-green-800 border border-green-300' : 'bg-red-100 text-red-800 border border-red-300'}`}>
+          {toast.msg}
+        </div>
+      )}
+
       {/* Top bar */}
-      <div className="flex items-center gap-4 mb-6 flex-wrap">
+      <div className="flex items-center gap-3 mb-6 flex-wrap">
         <h1 className="text-xl font-bold text-gray-900">🚌 Grupni transferi</h1>
         <input type="date" value={date}
           onChange={e => setDate(e.target.value)}
@@ -928,7 +1020,7 @@ export default function GroupSchedule() {
 
       {/* Price breakdown */}
       {nalozi.length > 0 && (
-        <div className="card p-3 mb-6 bg-yellow-50 border border-yellow-200 text-xs text-yellow-800 flex flex-wrap gap-x-4 gap-y-1">
+        <div className="card p-3 mb-4 bg-yellow-50 border border-yellow-200 text-xs text-yellow-800 flex flex-wrap gap-x-4 gap-y-1">
           {nalozi.map(n => (
             <span key={n.id}>
               <strong>{n.id}</strong>: {n.type === 'RT' ? 'RT' : n.owrt} ·{' '}
@@ -937,6 +1029,43 @@ export default function GroupSchedule() {
             </span>
           ))}
           <span className="ml-auto font-bold text-yellow-900">UKUPNO: €{totalPrice}</span>
+        </div>
+      )}
+
+      {/* Potvrda rasporeda */}
+      {nalozi.length > 0 && (
+        <div className={`card p-4 mb-6 flex flex-wrap items-center gap-3 border-2
+          ${confirmed ? 'border-green-300 bg-green-50' : 'border-dashed border-gray-300 bg-gray-50'}`}>
+          <div className="flex flex-col">
+            <span className="text-sm font-semibold text-gray-700">Potvrdi raspored</span>
+            <span className="text-xs text-gray-400">Čuva naloge u bazu za obračun sa suplaerom</span>
+          </div>
+          <select
+            value={busSupplier}
+            onChange={e => setBusSupplier(e.target.value)}
+            className="input text-sm w-52"
+          >
+            <option value="">— Izaberi suplaera —</option>
+            {suppliers.map(s => (
+              <option key={s.id} value={s.id}>{s.name}</option>
+            ))}
+          </select>
+          <button
+            onClick={confirmSchedule}
+            disabled={confirming || !busSupplier}
+            className={`px-4 py-2 rounded font-semibold text-sm transition-colors disabled:opacity-50
+              ${confirmed
+                ? 'bg-green-600 hover:bg-green-700 text-white'
+                : 'bg-brand-600 hover:bg-brand-700 text-white'}`}
+          >
+            {confirming ? '⏳ Potvrđujem...' : confirmed ? '🔄 Ažuriraj potvrdu' : '✅ Potvrdi raspored'}
+          </button>
+          {confirmed && (
+            <span className="ml-auto flex items-center gap-1.5 text-green-700 font-medium text-sm">
+              <span className="w-2 h-2 rounded-full bg-green-500 inline-block" />
+              Potvrđeno — u obradi
+            </span>
+          )}
         </div>
       )}
 

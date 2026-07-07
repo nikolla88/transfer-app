@@ -8,7 +8,7 @@ const BUS_LABELS    = { sprinter: 'Sprinter (≤19)', midi: 'Midi bus (≤35)', 
 const BUCKET_LABELS = { budva: 'Budva/Bečići', petrovac: 'Petrovac', bar: 'Bar/Sutomore' }
 
 // PriceCell mora biti VAN roditeljske komponente da ne bi remountovao na svaki render
-function PriceCell({ value, isSaving, onSave }) {
+function PriceCell({ value, isSaving, hasError, onSave }) {
   const [local, setLocal] = useState(value ?? '')
 
   useEffect(() => { setLocal(value ?? '') }, [value])
@@ -23,7 +23,9 @@ function PriceCell({ value, isSaving, onSave }) {
       placeholder="0"
       className={`w-20 text-center font-mono text-sm border rounded px-2 py-1 outline-none transition-colors
         focus:border-brand-400 focus:ring-1 focus:ring-brand-300
-        ${isSaving ? 'bg-yellow-50 border-yellow-300' : 'border-gray-300 hover:border-gray-400'}`}
+        ${isSaving ? 'bg-yellow-50 border-yellow-300'
+          : hasError ? 'bg-red-50 border-red-400'
+          : 'border-gray-300 hover:border-gray-400'}`}
     />
   )
 }
@@ -33,6 +35,8 @@ export default function BusPrices() {
   const [supplierId,  setSupplierId]  = useState('null')
   const [prices,      setPrices]      = useState({})
   const [saving,      setSaving]      = useState({})
+  const [errors,      setErrors]      = useState({})
+  const [toast,       setToast]       = useState(null) // { msg, ok }
   const [loading,     setLoading]     = useState(false)
 
   useEffect(() => {
@@ -49,7 +53,9 @@ export default function BusPrices() {
     let q = supabase.from('bus_prices').select('*')
     q = sid === null ? q.is('supplier_id', null) : q.eq('supplier_id', sid)
     const { data, error } = await q
-    if (!error) {
+    if (error) {
+      showToast('Greška pri učitavanju: ' + error.message, false)
+    } else {
       const map = {}
       for (const row of (data || [])) {
         map[`${row.bus_type}||${row.airport}||${row.zone_bucket}`] = {
@@ -59,42 +65,73 @@ export default function BusPrices() {
         }
       }
       setPrices(map)
+      if ((data || []).length === 0) {
+        showToast('Tabela je prazna — pokreni SQL migraciju supabase_group_transfers.sql', false)
+      }
     }
     setLoading(false)
   }
 
+  function showToast(msg, ok = true) {
+    setToast({ msg, ok })
+    setTimeout(() => setToast(null), 3500)
+  }
+
   async function saveCell(bt, apt, bkt, field, value) {
-    const key = `${bt}||${apt}||${bkt}`
-    const num = parseFloat(value)
+    const key   = `${bt}||${apt}||${bkt}`
+    const num   = parseFloat(value)
     if (isNaN(num)) return
-    const skey = `${key}||${field}`
-    setSaving(s => ({ ...s, [skey]: true }))
+    const skey  = `${key}||${field}`
+
+    setSaving(s  => ({ ...s, [skey]: true  }))
+    setErrors(e  => { const n = { ...e }; delete n[skey]; return n })
 
     const sid      = supplierId === 'null' ? null : supplierId
     const existing = prices[key]
 
+    let error = null
+
     if (existing?.id) {
-      await supabase.from('bus_prices').update({ [field]: num }).eq('id', existing.id)
-      setPrices(p => ({ ...p, [key]: { ...p[key], [field]: num } }))
+      const res = await supabase.from('bus_prices').update({ [field]: num }).eq('id', existing.id)
+      error = res.error
+      if (!error) {
+        setPrices(p => ({ ...p, [key]: { ...p[key], [field]: num } }))
+      }
     } else {
-      const { data } = await supabase.from('bus_prices').insert({
+      const res = await supabase.from('bus_prices').insert({
         supplier_id: sid, bus_type: bt, airport: apt, zone_bucket: bkt,
         price_ow: field === 'price_ow' ? num : 0,
         price_rt: field === 'price_rt' ? num : 0,
       }).select().single()
-      if (data) {
+      error = res.error
+      if (!error && res.data) {
         setPrices(p => ({
           ...p,
-          [key]: { id: data.id, price_ow: Number(data.price_ow), price_rt: Number(data.price_rt) },
+          [key]: { id: res.data.id, price_ow: Number(res.data.price_ow), price_rt: Number(res.data.price_rt) },
         }))
       }
     }
 
     setSaving(s => { const n = { ...s }; delete n[skey]; return n })
+
+    if (error) {
+      setErrors(e => ({ ...e, [skey]: true }))
+      showToast('Greška: ' + error.message, false)
+    } else {
+      showToast('Sačuvano ✓')
+    }
   }
 
   return (
     <div className="p-6 max-w-4xl mx-auto">
+      {/* Toast */}
+      {toast && (
+        <div className={`fixed top-4 right-4 z-50 px-4 py-3 rounded-lg shadow-lg text-sm font-medium transition-all
+          ${toast.ok ? 'bg-green-100 text-green-800 border border-green-300' : 'bg-red-100 text-red-800 border border-red-300'}`}>
+          {toast.msg}
+        </div>
+      )}
+
       <div className="flex items-center gap-4 mb-6">
         <h1 className="text-xl font-bold text-gray-900">🚌 Cjenovnik autobusa</h1>
         <div className="flex items-center gap-2 ml-auto">
@@ -140,32 +177,32 @@ export default function BusPrices() {
                   </tr>
                 </thead>
                 <tbody>
-                  {BUS_TYPES.map((bt, i) => {
-                    return (
-                      <tr key={bt} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50/40'}>
-                        <td className="px-4 py-2.5 font-medium text-gray-700">{BUS_LABELS[bt]}</td>
-                        {BUCKETS.flatMap(bkt => {
-                          const key = `${bt}||${apt}||${bkt}`
-                          return [
-                            <td key={`${bkt}-ow`} className="px-2 py-2 text-center">
-                              <PriceCell
-                                value={prices[key]?.price_ow}
-                                isSaving={!!saving[`${key}||price_ow`]}
-                                onSave={v => saveCell(bt, apt, bkt, 'price_ow', v)}
-                              />
-                            </td>,
-                            <td key={`${bkt}-rt`} className="px-2 py-2 text-center">
-                              <PriceCell
-                                value={prices[key]?.price_rt}
-                                isSaving={!!saving[`${key}||price_rt`]}
-                                onSave={v => saveCell(bt, apt, bkt, 'price_rt', v)}
-                              />
-                            </td>,
-                          ]
-                        })}
-                      </tr>
-                    )
-                  })}
+                  {BUS_TYPES.map((bt, i) => (
+                    <tr key={bt} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50/40'}>
+                      <td className="px-4 py-2.5 font-medium text-gray-700">{BUS_LABELS[bt]}</td>
+                      {BUCKETS.flatMap(bkt => {
+                        const key = `${bt}||${apt}||${bkt}`
+                        return [
+                          <td key={`${bkt}-ow`} className="px-2 py-2 text-center">
+                            <PriceCell
+                              value={prices[key]?.price_ow}
+                              isSaving={!!saving[`${key}||price_ow`]}
+                              hasError={!!errors[`${key}||price_ow`]}
+                              onSave={v => saveCell(bt, apt, bkt, 'price_ow', v)}
+                            />
+                          </td>,
+                          <td key={`${bkt}-rt`} className="px-2 py-2 text-center">
+                            <PriceCell
+                              value={prices[key]?.price_rt}
+                              isSaving={!!saving[`${key}||price_rt`]}
+                              hasError={!!errors[`${key}||price_rt`]}
+                              onSave={v => saveCell(bt, apt, bkt, 'price_rt', v)}
+                            />
+                          </td>,
+                        ]
+                      })}
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
