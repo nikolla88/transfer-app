@@ -1145,6 +1145,28 @@ ${vehHTML || '<p style="color:#999">Nema raspoređenih vozila.</p>'}
       }))
     }
 
+    // Sinkronizuj dodijeljeno vozilo/suplaera u rooming_list
+    // → Lista odlazaka i Lista dolazaka prikazuju naziv vozača umjesto tipa
+    const vehicleSyncs = []
+    for (const t of scheduled) {
+      const vehicleName = t.assignedVehicle?.name
+        || (t.assignedSupplier ? t.assignedSupplier.name : null)
+      // Za merged transfere: svaki dio ima isti dodijeljeni vozač
+      const parts = (t._isMerged && t._mergedParts) ? t._mergedParts : [t]
+      for (const part of parts) {
+        const rid = part.reservation_id ?? t.reservation_id
+        const baseId = parseInt(rid.replace(/_(arr|dep)\d*$/i, ''), 10)
+        if (!isNaN(baseId)) vehicleSyncs.push({ type: t.type, baseId, vehicleName })
+      }
+    }
+    if (vehicleSyncs.length > 0) {
+      await Promise.all(vehicleSyncs.map(({ type, baseId, vehicleName }) =>
+        type === 'dep'
+          ? supabase.from('rooming_list').update({ dep_assigned_vehicle: vehicleName || null }).eq('claim_inc', baseId).eq('date_end', date)
+          : supabase.from('rooming_list').update({ arr_assigned_vehicle: vehicleName || null }).eq('claim_inc', baseId).eq('date_beg', date)
+      ))
+    }
+
     setSaveMsg('✅ Sačuvano!')
     setTimeout(() => setSaveMsg(''), 3000)
   }

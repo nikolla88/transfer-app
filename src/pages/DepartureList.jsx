@@ -232,7 +232,7 @@ export default function DepartureList() {
         sc(7,  rowNum, rec.hotel_name || '',          BORDER)
         sc(8,  rowNum, rec.partner_alias || '',       BORDER)
         sc(9,  rowNum, rec.dep_transfer_alias || '',  BORDER)
-        sc(10, rowNum, rec.dep_vehicle_type || '',    BORDER)
+        sc(10, rowNum, rec.dep_assigned_vehicle || rec.dep_vehicle_type || '', BORDER)
         sc(11, rowNum, rec._pickupTime || '',         BORDER)
         sc(12, rowNum, rec.claim_oper_note || '',     BORDER)
         rowNum++
@@ -281,7 +281,7 @@ export default function DepartureList() {
   }
 
   // Fiksna širina tabele = zbir svih kolona (da sve grupe budu iste širine)
-  const DEP_COL_W = { num: 68, gost: 160, a: 22, c: 22, i: 22, chin: 62, letDol: 60, hotel: 300, partner: 84, tr: 48, vozilo: 56, pickup: 56, nap: 220 }
+  const DEP_COL_W = { num: 68, gost: 160, a: 22, c: 22, i: 22, chin: 62, letDol: 60, hotel: 300, partner: 84, tr: 48, vozilo: 80, pickup: 56, nap: 220 }
   const DEP_TABLE_W = Object.values(DEP_COL_W).reduce((s, w) => s + w, 0) // 1180px
 
   // ── Redizajnirana tabela ──────────────────────────────────────
@@ -352,39 +352,54 @@ export default function DepartureList() {
                 </td>
                 <td className="px-1 py-1 relative">
                   {(tr === 'IND' || tr === 'GRP') ? (
-                    <>
-                      <span onClick={() => setVehicleEdit(vehicleEdit === r.id ? null : r.id)}
-                        title="Klikni za izmjenu vozila"
-                        className={`cursor-pointer px-1.5 py-px rounded text-[9px] font-bold transition-colors ${r.dep_vehicle_type ? VEH_IDLE[r.dep_vehicle_type] || 'bg-gray-100 text-gray-600' : 'text-gray-200 hover:text-gray-400'}`}>
-                        {r.dep_vehicle_type || '—'}
-                      </span>
-                      {vehicleEdit === r.id && (
-                        <div className="fixed z-50 flex gap-0.5 bg-white border border-gray-200 rounded shadow-lg px-1.5 py-1"
-                          ref={el => {
-                            if (el) {
-                              const span = el.previousSibling
-                              if (span) {
-                                const rect = span.getBoundingClientRect()
-                                el.style.top  = (rect.bottom + 2) + 'px'
-                                el.style.left = rect.left + 'px'
+                    r.dep_assigned_vehicle ? (
+                      // Vozilo dodjeljeno iz dnevnog rasporeda — prikaži naziv
+                      <div className="flex flex-col gap-0.5">
+                        <span className="font-bold text-[10px] text-gray-800 truncate leading-tight block" title={r.dep_assigned_vehicle}>
+                          {r.dep_assigned_vehicle}
+                        </span>
+                        {r.dep_vehicle_type && (
+                          <span className={`px-1 py-px rounded text-[8px] font-semibold inline-block ${VEH_IDLE[r.dep_vehicle_type] || 'bg-gray-100 text-gray-500'}`}>
+                            {r.dep_vehicle_type === 'Car Comfort' ? 'CMFT' : r.dep_vehicle_type === 'V-Class' ? 'VCL' : r.dep_vehicle_type.slice(0,3).toUpperCase()}
+                          </span>
+                        )}
+                      </div>
+                    ) : (
+                      // Raspored nije sačuvan — prikaži/edituj tip vozila
+                      <>
+                        <span onClick={() => setVehicleEdit(vehicleEdit === r.id ? null : r.id)}
+                          title="Klikni za izmjenu vozila"
+                          className={`cursor-pointer px-1.5 py-px rounded text-[9px] font-bold transition-colors ${r.dep_vehicle_type ? VEH_IDLE[r.dep_vehicle_type] || 'bg-gray-100 text-gray-600' : 'text-gray-200 hover:text-gray-400'}`}>
+                          {r.dep_vehicle_type || '—'}
+                        </span>
+                        {vehicleEdit === r.id && (
+                          <div className="fixed z-50 flex gap-0.5 bg-white border border-gray-200 rounded shadow-lg px-1.5 py-1"
+                            ref={el => {
+                              if (el) {
+                                const span = el.previousSibling
+                                if (span) {
+                                  const rect = span.getBoundingClientRect()
+                                  el.style.top  = (rect.bottom + 2) + 'px'
+                                  el.style.left = rect.left + 'px'
+                                }
                               }
-                            }
-                          }}>
-                          {VEH_OPTIONS.map(v => (
-                            <button key={v} onClick={() => { saveVehicle(r.id, v); setVehicleEdit(null) }}
-                              className={`px-1.5 py-px rounded text-[9px] font-bold border transition-colors ${r.dep_vehicle_type === v ? VEH_CLS[v] + ' border-transparent' : 'bg-white text-gray-500 border-gray-300 hover:bg-gray-50'}`}>
-                              {v === 'V-Class' ? 'VCL' : v === 'Minivan' ? 'MNV' : 'CAR'}
+                            }}>
+                            {VEH_OPTIONS.map(v => (
+                              <button key={v} onClick={() => { saveVehicle(r.id, v); setVehicleEdit(null) }}
+                                className={`px-1.5 py-px rounded text-[9px] font-bold border transition-colors ${r.dep_vehicle_type === v ? VEH_CLS[v] + ' border-transparent' : 'bg-white text-gray-500 border-gray-300 hover:bg-gray-50'}`}>
+                                {v === 'V-Class' ? 'VCL' : v === 'Minivan' ? 'MNV' : 'CAR'}
+                              </button>
+                            ))}
+                            <button
+                              onClick={() => { saveVehicle(r.id, null); setVehicleEdit(null) }}
+                              title="Ukloni vozilo"
+                              className="px-1.5 py-px text-[9px] font-bold text-red-400 border border-red-200 rounded hover:bg-red-50 ml-0.5">
+                              ✕
                             </button>
-                          ))}
-                          <button
-                            onClick={() => { saveVehicle(r.id, null); setVehicleEdit(null) }}
-                            title="Ukloni vozilo"
-                            className="px-1.5 py-px text-[9px] font-bold text-red-400 border border-red-200 rounded hover:bg-red-50 ml-0.5">
-                            ✕
-                          </button>
-                        </div>
-                      )}
-                    </>
+                          </div>
+                        )}
+                      </>
+                    )
                   ) : ''}
                 </td>
                 <td className="px-1 py-1 text-center">
