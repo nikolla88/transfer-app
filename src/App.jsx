@@ -23,7 +23,8 @@ import BusPrices      from './pages/admin/BusPrices'
 import Users          from './pages/admin/Users'
 import SalePrices     from './pages/SalePrices'
 import Reports        from './pages/Reports'
-import VehicleCosts   from './pages/admin/VehicleCosts'
+import VehicleCosts        from './pages/admin/VehicleCosts'
+import SupplierAccounting  from './pages/admin/SupplierAccounting'
 
 // ── Auth Context ─────────────────────────────────────────────
 const AuthCtx = createContext(null)
@@ -172,6 +173,10 @@ export default function App() {
             {/* Troškovi vozila */}
             <Route path="admin/vehicle-costs"
               element={<RequirePermission permKey="admin_vehicle_costs"><VehicleCosts /></RequirePermission>} />
+
+            {/* Obračun suplajera */}
+            <Route path="admin/supplier-accounting"
+              element={<RequirePermission permKey="admin_accounting"><SupplierAccounting /></RequirePermission>} />
 
             {/* Cjenovnik prodajnih cijena */}
             <Route path="sale-prices"
