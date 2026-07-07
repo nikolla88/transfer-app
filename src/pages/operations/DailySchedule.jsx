@@ -420,12 +420,24 @@ export default function DailySchedule() {
     return `${String(Math.floor(total / 60)).padStart(2,'0')}:${String(total % 60).padStart(2,'0')}`
   }
 
-  function saveInlinePickup() {
+  async function saveInlinePickup() {
     if (!inlinePickup) return
     const { id, val } = inlinePickup
     const newTime = val.trim() || null
     setTransfers(ts => ts.map(t => t._id === id ? { ...t, pickup_time: newTime } : t))
     setInlinePickup(null)
+    // Persisti dep pickup u rooming_list (odatle čita Lista odlazaka)
+    const t = transfers.find(t => t._id === id)
+    if (t?.type === 'dep') {
+      const baseId = parseInt(t.reservation_id, 10)
+      if (!isNaN(baseId)) {
+        await supabase
+          .from('rooming_list')
+          .update({ dep_pick_time: newTime })
+          .eq('claim_inc', baseId)
+          .eq('date_end', date)
+      }
+    }
   }
 
   async function changeScheduledPickup(uid, newTime) {
@@ -1112,7 +1124,28 @@ ${vehHTML || '<p style="color:#999">Nema raspoređenih vozila.</p>'}
     })
 
     const { error } = await supabase.from('transfers').insert(rows)
-    setSaveMsg(error ? '❌ Greška: ' + error.message : '✅ Sačuvano!')
+    if (error) {
+      setSaveMsg('❌ Greška: ' + error.message)
+      setTimeout(() => setSaveMsg(''), 4000)
+      return
+    }
+
+    // Sinkronizuj rooming_list.dep_pick_time za sve DEP transfere
+    // (Lista odlazaka, Lista dolazaka i Grupni transferi čitaju odavde)
+    const depToSync = scheduled.filter(t => t.type === 'dep' && !t._isMerged)
+    if (depToSync.length > 0) {
+      await Promise.all(depToSync.map(t => {
+        const baseId = parseInt(t.reservation_id.replace(/_(arr|dep)\d*$/i, ''), 10)
+        if (isNaN(baseId)) return Promise.resolve()
+        return supabase
+          .from('rooming_list')
+          .update({ dep_pick_time: t.pickup_time || null })
+          .eq('claim_inc', baseId)
+          .eq('date_end', date)
+      }))
+    }
+
+    setSaveMsg('✅ Sačuvano!')
     setTimeout(() => setSaveMsg(''), 3000)
   }
 
