@@ -215,9 +215,10 @@ export default function DepartureList() {
     function sf(c, row, f) { ws[`${ALPHA[c]}${row}`] = { f, t: 'n', s: {} } }
 
     // Stil ćelije s opcionalnom bojom fonta
-    // assigned vehicle → crveni font, no-transfer → zeleni, ostalo → crni
+    // ima vozilo (dep_vehicle_type nije null) → crveni font
+    // no-transfer → zeleni font, ostalo → crni
     function rowStyle(rec, isNoTransfer) {
-      const rgb = rec.dep_assigned_vehicle ? 'CC0000'
+      const rgb = rec.dep_vehicle_type ? 'CC0000'
         : isNoTransfer ? '006600'
         : null
       return rgb
