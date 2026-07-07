@@ -428,6 +428,20 @@ export default function DailySchedule() {
     setInlinePickup(null)
   }
 
+  async function changeScheduledPickup(uid, newTime) {
+    const trimmed = newTime?.trim() || null
+    // 1. Ažuriraj u memoriji odmah
+    setScheduled(prev => prev.map(t => t._uid === uid ? { ...t, pickup_time: trimmed } : t))
+    // 2. Persisti u DB ako je raspored već sačuvan
+    const t = scheduled.find(t => t._uid === uid)
+    if (!t) return
+    await supabase
+      .from('transfers')
+      .update({ pickup_time: trimmed })
+      .eq('transfer_date', date)
+      .eq('reservation_id', t.reservation_id)
+  }
+
   function shiftFlightDS(flightNumber, deltaMin) {
     setTransfers(ts => ts.map(t =>
       t.flight_number === flightNumber && t.pickup_time
@@ -1405,6 +1419,7 @@ ${vehHTML || '<p style="color:#999">Nema raspoređenih vozila.</p>'}
               onSeparate={separateTransfer}
               splitReservations={splitReservations}
               flightStatuses={flightStatuses}
+              onPickupChange={changeScheduledPickup}
             />
           ))}
           {extGroup && extGroup.jobs.length > 0 && (
@@ -1422,6 +1437,7 @@ ${vehHTML || '<p style="color:#999">Nema raspoređenih vozila.</p>'}
               onSeparate={separateTransfer}
               splitReservations={splitReservations}
               flightStatuses={flightStatuses}
+              onPickupChange={changeScheduledPickup}
             />
           )}
           {groups.length === 0 && (
@@ -1707,10 +1723,11 @@ function SupplierPicker({ transfer: t, suppliers, onAssign, open, onToggle }) {
   )
 }
 
-function VehicleCard({ group, isExternal, allVehicles = [], suppliers = [], onReassign, onAssignSupplier, onRemove, selectedIds = new Set(), onToggleSelect, onUnmerge, onSeparate, splitReservations = new Set(), flightStatuses = {} }) {
+function VehicleCard({ group, isExternal, allVehicles = [], suppliers = [], onReassign, onAssignSupplier, onRemove, selectedIds = new Set(), onToggleSelect, onUnmerge, onSeparate, splitReservations = new Set(), flightStatuses = {}, onPickupChange }) {
   const { vehicle, jobs } = group
   const [openMenu, setOpenMenu] = useState(null)
   const [openSupplierMenu, setOpenSupplierMenu] = useState(null)
+  const [editPickup, setEditPickup] = useState(null) // { uid, val }
 
   const headerColor = isExternal
     ? 'bg-orange-50 border-orange-200'
@@ -1761,7 +1778,32 @@ function VehicleCard({ group, isExternal, allVehicles = [], suppliers = [], onRe
 
               {/* Pickup time + type */}
               <div className="text-center flex-shrink-0 w-16">
-                <div className="font-mono text-sm font-bold">{t.pickup_time}</div>
+                {editPickup?.uid === t._uid ? (
+                  <input
+                    autoFocus
+                    type="text"
+                    placeholder="HH:MM"
+                    value={editPickup.val}
+                    onChange={e => setEditPickup(p => ({ ...p, val: e.target.value }))}
+                    onBlur={() => {
+                      onPickupChange?.(t._uid, editPickup.val)
+                      setEditPickup(null)
+                    }}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') { onPickupChange?.(t._uid, editPickup.val); setEditPickup(null) }
+                      if (e.key === 'Escape') setEditPickup(null)
+                    }}
+                    className="font-mono text-sm font-bold w-full text-center border border-yellow-400 rounded bg-yellow-50 focus:outline-none focus:border-yellow-500 px-1"
+                  />
+                ) : (
+                  <div
+                    onClick={() => setEditPickup({ uid: t._uid, val: t.pickup_time || '' })}
+                    title="Klikni za izmjenu pickup vremena"
+                    className="font-mono text-sm font-bold cursor-pointer hover:bg-yellow-50 hover:text-yellow-700 rounded px-1 transition-colors"
+                  >
+                    {t.pickup_time || <span className="text-gray-300">—</span>}
+                  </div>
+                )}
                 <div className={`text-xs mt-0.5 ${t.type === 'arr' ? 'text-green-600' : 'text-blue-600'}`}>
                   {t.type === 'arr' ? '🛬 arr' : '🛫 dep'}
                 </div>
