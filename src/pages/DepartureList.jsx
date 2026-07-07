@@ -214,7 +214,18 @@ export default function DepartureList() {
     function sc(c, row, v, s = {}, t = 's') { ws[`${ALPHA[c]}${row}`] = { v, t, s } }
     function sf(c, row, f) { ws[`${ALPHA[c]}${row}`] = { f, t: 'n', s: {} } }
 
-    function addSection(recs, headerText) {
+    // Stil ćelije s opcionalnom bojom fonta
+    // assigned vehicle → crveni font, no-transfer → zeleni, ostalo → crni
+    function rowStyle(rec, isNoTransfer) {
+      const rgb = rec.dep_assigned_vehicle ? 'CC0000'
+        : isNoTransfer ? '006600'
+        : null
+      return rgb
+        ? { border: { top: THIN, bottom: THIN, left: THIN, right: THIN }, font: { color: { rgb } } }
+        : BORDER
+    }
+
+    function addSection(recs, headerText, isNoTransfer = false) {
       sc(0, rowNum, headerText, { font: { bold: true } })
       for (let c = 1; c < NCOLS; c++) sc(c, rowNum, '', {})
       rowHeights[rowNum - 1] = { hpx: 19 }
@@ -222,19 +233,20 @@ export default function DepartureList() {
 
       const first = rowNum
       for (const rec of recs) {
-        sc(0,  rowNum, rec.claim_inc || '',          BORDER)
-        sc(1,  rowNum, rec.tourist_name || '',        BORDER)
-        sc(2,  rowNum, rec.adult  ?? 0,               BORDER, 'n')
-        sc(3,  rowNum, rec.child  ?? 0,               BORDER, 'n')
-        sc(4,  rowNum, rec.infant ?? 0,               BORDER, 'n')
-        sc(5,  rowNum, fmtDate(rec.date_beg) || '',   BORDER)
-        sc(6,  rowNum, rec.arr_flight_name || '',     BORDER)
-        sc(7,  rowNum, rec.hotel_name || '',          BORDER)
-        sc(8,  rowNum, rec.partner_alias || '',       BORDER)
-        sc(9,  rowNum, rec.dep_transfer_alias || '',  BORDER)
-        sc(10, rowNum, rec.dep_assigned_vehicle || rec.dep_vehicle_type || '', BORDER)
-        sc(11, rowNum, rec._pickupTime || '',         BORDER)
-        sc(12, rowNum, rec.claim_oper_note || '',     BORDER)
+        const S = rowStyle(rec, isNoTransfer)
+        sc(0,  rowNum, rec.claim_inc || '',          S)
+        sc(1,  rowNum, rec.tourist_name || '',        S)
+        sc(2,  rowNum, rec.adult  ?? 0,               S, 'n')
+        sc(3,  rowNum, rec.child  ?? 0,               S, 'n')
+        sc(4,  rowNum, rec.infant ?? 0,               S, 'n')
+        sc(5,  rowNum, fmtDate(rec.date_beg) || '',   S)
+        sc(6,  rowNum, rec.arr_flight_name || '',     S)
+        sc(7,  rowNum, rec.hotel_name || '',          S)
+        sc(8,  rowNum, rec.partner_alias || '',       S)
+        sc(9,  rowNum, rec.dep_transfer_alias || '',  S)
+        sc(10, rowNum, rec.dep_assigned_vehicle || rec.dep_vehicle_type || '', S)
+        sc(11, rowNum, rec._pickupTime || '',         S)
+        sc(12, rowNum, rec.claim_oper_note || '',     S)
         rowNum++
       }
       const last = rowNum - 1
@@ -259,7 +271,7 @@ export default function DepartureList() {
         .filter(Boolean).join(' ')
       addSection(records, hdr)
     }
-    if (noTransfer.length) addSection(noTransfer, 'BEZ TRANSFERA')
+    if (noTransfer.length) addSection(noTransfer, 'BEZ TRANSFERA', true)
 
     ws['!ref']  = `A1:${ALPHA[NCOLS - 1]}${rowNum - 1}`
     ws['!cols'] = [
