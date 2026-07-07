@@ -432,14 +432,27 @@ export default function DailySchedule() {
     const trimmed = newTime?.trim() || null
     // 1. Ažuriraj u memoriji odmah
     setScheduled(prev => prev.map(t => t._uid === uid ? { ...t, pickup_time: trimmed } : t))
-    // 2. Persisti u DB ako je raspored već sačuvan
     const t = scheduled.find(t => t._uid === uid)
     if (!t) return
+    // 2. Ažuriraj transfers tabelu (raspored)
     await supabase
       .from('transfers')
       .update({ pickup_time: trimmed })
       .eq('transfer_date', date)
       .eq('reservation_id', t.reservation_id)
+    // 3. Za dep transfere — sinkronizuj i rooming_list.dep_pick_time
+    //    (odatle čita Lista odlazaka). Arr ne diramo — avion slijeće kad slijeće.
+    if (t.type === 'dep' && !t._isMerged) {
+      // Ukloni DB sufiks da dobijemo originalni claim_inc ("12345_dep" → 12345)
+      const baseId = parseInt(t.reservation_id.replace(/_(arr|dep)\d*$/i, ''), 10)
+      if (!isNaN(baseId)) {
+        await supabase
+          .from('rooming_list')
+          .update({ dep_pick_time: trimmed })
+          .eq('claim_inc', baseId)
+          .eq('date_end', date)
+      }
+    }
   }
 
   function shiftFlightDS(flightNumber, deltaMin) {
@@ -489,7 +502,7 @@ export default function DailySchedule() {
       flight_number:    t.flight_number,
       flight_time:      t.flight_time,
       airport:          t.airport,
-      pickup_time:      t.pickup_time,
+      pickup_time:      t.pickup_time?.slice(0, 5) ?? null,
       pax:              t.pax || (t.adl || 0) + (t.chd || 0),
       adl:              t.adl || 0,
       chd:              t.chd || 0,
@@ -1797,11 +1810,11 @@ function VehicleCard({ group, isExternal, allVehicles = [], suppliers = [], onRe
                   />
                 ) : (
                   <div
-                    onClick={() => setEditPickup({ uid: t._uid, val: t.pickup_time || '' })}
+                    onClick={() => setEditPickup({ uid: t._uid, val: t.pickup_time?.slice(0, 5) || '' })}
                     title="Klikni za izmjenu pickup vremena"
                     className="font-mono text-sm font-bold cursor-pointer hover:bg-yellow-50 hover:text-yellow-700 rounded px-1 transition-colors"
                   >
-                    {t.pickup_time || <span className="text-gray-300">—</span>}
+                    {t.pickup_time?.slice(0, 5) || <span className="text-gray-300">—</span>}
                   </div>
                 )}
                 <div className={`text-xs mt-0.5 ${t.type === 'arr' ? 'text-green-600' : 'text-blue-600'}`}>

@@ -103,7 +103,7 @@ export default function DepartureList() {
       const canonical = match?.canonical || r.dep_flight_name
       const schedule  = findScheduleForDay(match?.schedules || [], dayName)
       const hotel     = hotelMap[r.hotel_name]
-      let pickupTime  = r.dep_pick_time || null  // manual override ima prednost
+      let pickupTime  = r.dep_pick_time?.slice(0, 5) || null  // manual override ima prednost
       if (!pickupTime && schedule && hotel) {
         const mins = schedule.airport === 'TIV' ? hotel.time_to_tiv : hotel.time_to_tgd
         pickupTime = calcPickupTime(schedule.scheduled_time, mins)
