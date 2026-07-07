@@ -479,27 +479,27 @@ export default function DepartureList() {
     <div className="flex flex-col h-screen overflow-hidden bg-gray-50">
 
       {/* ── Toolbar ─────────────────────────────────────── */}
-      <div className="px-5 py-2.5 border-b bg-white flex-shrink-0 flex items-center gap-3 no-print shadow-sm">
-        <span className="text-sm font-bold text-gray-700 flex items-center gap-2">
+      <div className="px-3 md:px-5 py-2 md:py-2.5 border-b bg-white flex-shrink-0 flex items-center gap-2 md:gap-3 no-print shadow-sm">
+        <span className="text-sm font-bold text-gray-700 hidden md:flex items-center gap-2">
           🛫 Odlazak
         </span>
-        <input type="date" className="input text-sm w-38 h-8 cursor-pointer" value={selectedDate}
+        <input type="date" className="input text-sm h-8 cursor-pointer" value={selectedDate}
           onClick={e => e.target.showPicker?.()}
           onChange={e => setSelectedDate(e.target.value)} />
-        <span className="text-xs text-gray-400 ml-1">
+        <span className="text-xs text-gray-400">
           {loading ? '⏳' : `${total} gostiju`}
         </span>
-        <div className="ml-auto flex gap-2">
+        <div className="ml-auto flex gap-1.5 md:gap-2">
           <button onClick={loadData}
-            className="px-2.5 py-1.5 rounded text-xs border border-gray-300 hover:bg-gray-50 text-gray-600">
-            ↻ Osvježi
+            className="px-2 md:px-2.5 py-1.5 rounded text-xs border border-gray-300 hover:bg-gray-50 text-gray-600">
+            ↻
           </button>
           <button onClick={exportToExcel}
-            className="px-2.5 py-1.5 rounded text-xs border border-gray-300 hover:bg-gray-50 text-gray-600">
+            className="hidden md:block px-2.5 py-1.5 rounded text-xs border border-gray-300 hover:bg-gray-50 text-gray-600">
             📥 Excel
           </button>
           <button onClick={() => window.print()}
-            className="px-2.5 py-1.5 rounded text-xs border border-gray-300 hover:bg-gray-50 text-gray-600">
+            className="hidden md:block px-2.5 py-1.5 rounded text-xs border border-gray-300 hover:bg-gray-50 text-gray-600">
             🖨 Štampaj
           </button>
         </div>
@@ -518,7 +518,7 @@ export default function DepartureList() {
       </div>
 
       {/* ── Sadržaj ─────────────────────────────────────── */}
-      <div className="flex-1 overflow-auto px-4 py-2">
+      <div className="flex-1 overflow-auto px-2 md:px-4 py-2">
 
         {!loading && groups.length === 0 && noTransfer.length === 0 && (
           <div className="text-center text-gray-400 py-20">
@@ -527,24 +527,100 @@ export default function DepartureList() {
           </div>
         )}
 
-        {/* Grupe po letu */}
-        {groups.map(({ flight, schedule, records }) => (
-          <div key={flight} className="mb-4 rounded overflow-hidden border border-gray-200 shadow-sm flight-group">
-            <FlightHeader flight={flight} schedule={schedule} records={records} />
-            <Table records={records} />
-          </div>
-        ))}
-
-        {/* NO TR-R */}
-        {noTransfer.length > 0 && (
-          <div className="mb-4 rounded overflow-hidden border border-gray-200 shadow-sm flight-group">
-            <div className="flex items-center gap-3 bg-gray-500 text-white px-3 py-1.5">
-              <span className="font-semibold text-sm">BEZ TRANSFERA (NO TR-R)</span>
-              <span className="ml-auto text-[11px] text-gray-200">{noTransfer.length} gostiju · {totalPax(noTransfer)} pax</span>
+        {/* ── MOBILE card view ── */}
+        <div className="md:hidden space-y-3">
+          {groups.map(({ flight, schedule, records }) => (
+            <div key={flight} className="rounded-lg overflow-hidden border border-gray-200 shadow-sm">
+              {/* Let header */}
+              <div className="flex items-center gap-2 bg-gray-800 text-white px-3 py-2">
+                <span className="font-mono font-bold text-sm">{flight}</span>
+                {schedule && (
+                  <>
+                    <span className="font-mono text-amber-300 font-bold">{fmtTime(schedule.scheduled_time)}</span>
+                    <span className="text-xs bg-white/10 px-1.5 py-px rounded font-medium">{schedule.airport}</span>
+                  </>
+                )}
+                <span className="ml-auto text-xs text-gray-400 tabular-nums">{records.length} · {totalPax(records)} pax</span>
+              </div>
+              {/* Kartice gostiju */}
+              {records.map((r, i) => {
+                const tr = r.dep_transfer_alias
+                const lbCls = { GRP: 'border-l-blue-500', SHA: 'border-l-purple-500', IND: 'border-l-amber-500' }[tr] || 'border-l-gray-200'
+                const pax = (r.adult||0)+(r.child||0)+(r.infant||0)
+                return (
+                  <div key={r.id} className={`flex items-stretch border-b border-gray-100 border-l-4 ${lbCls} ${i%2===0?'bg-white':'bg-gray-50/50'}`}>
+                    {/* Pickup kolona */}
+                    <div className="flex-shrink-0 w-16 flex flex-col items-center justify-center border-r border-gray-100 py-3">
+                      {inlinePickup?.id === r.id ? (
+                        <input autoFocus type="text" placeholder="HH:MM"
+                          value={inlinePickup.val}
+                          onChange={e => setInlinePickup(p => ({...p, val: e.target.value}))}
+                          onBlur={savePickup}
+                          onKeyDown={e => { if(e.key==='Enter') savePickup(); if(e.key==='Escape') setInlinePickup(null) }}
+                          className="w-14 text-center font-mono text-sm font-bold border border-sky-400 rounded px-1 py-0.5 outline-none" />
+                      ) : (
+                        <div onClick={() => startPickup(r)} className="font-mono text-base font-bold text-red-600 cursor-pointer">
+                          {r._pickupTime || <span className="text-gray-300">—</span>}
+                        </div>
+                      )}
+                      <div className="text-[9px] text-gray-400 mt-0.5 uppercase tracking-wide">pickup</div>
+                    </div>
+                    {/* Info */}
+                    <div className="flex-1 py-2.5 px-3 min-w-0">
+                      <div className="font-semibold text-sm text-gray-800 truncate">{r.tourist_name}</div>
+                      <div className="text-xs text-gray-500 truncate mt-0.5">{r.hotel_name}</div>
+                      <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+                        {r.dep_assigned_vehicle ? (
+                          <span className="text-xs font-bold text-gray-700 bg-gray-100 px-1.5 py-px rounded">{r.dep_assigned_vehicle}</span>
+                        ) : r.dep_vehicle_type ? (
+                          <span className={`text-[10px] font-bold px-1.5 py-px rounded ${VEH_IDLE[r.dep_vehicle_type] || 'bg-gray-100 text-gray-600'}`}>{r.dep_vehicle_type}</span>
+                        ) : null}
+                        <span className="text-[10px] text-gray-400">{pax} pax</span>
+                        {TR_LABEL[tr] && <span className={`text-[9px] font-bold px-1 py-px rounded ${TR_LABEL[tr].cls}`}>{TR_LABEL[tr].text}</span>}
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
             </div>
-            <Table records={noTransfer} />
-          </div>
-        )}
+          ))}
+          {noTransfer.length > 0 && (
+            <div className="rounded-lg overflow-hidden border border-gray-200 shadow-sm">
+              <div className="bg-gray-500 text-white px-3 py-2 flex items-center justify-between">
+                <span className="font-semibold text-sm">BEZ TRANSFERA</span>
+                <span className="text-xs text-gray-200">{noTransfer.length} · {totalPax(noTransfer)} pax</span>
+              </div>
+              {noTransfer.map((r, i) => (
+                <div key={r.id} className={`flex items-center px-3 py-2.5 border-b border-gray-100 ${i%2===0?'bg-white':'bg-gray-50/50'}`}>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-medium text-sm text-gray-700 truncate">{r.tourist_name}</div>
+                    <div className="text-xs text-gray-400 truncate">{r.hotel_name}</div>
+                  </div>
+                  <span className="text-xs text-gray-400 ml-2">{(r.adult||0)+(r.child||0)+(r.infant||0)} pax</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* ── DESKTOP table view ── */}
+        <div className="hidden md:block">
+          {groups.map(({ flight, schedule, records }) => (
+            <div key={flight} className="mb-4 rounded overflow-hidden border border-gray-200 shadow-sm flight-group">
+              <FlightHeader flight={flight} schedule={schedule} records={records} />
+              <Table records={records} />
+            </div>
+          ))}
+          {noTransfer.length > 0 && (
+            <div className="mb-4 rounded overflow-hidden border border-gray-200 shadow-sm flight-group">
+              <div className="flex items-center gap-3 bg-gray-500 text-white px-3 py-1.5">
+                <span className="font-semibold text-sm">BEZ TRANSFERA (NO TR-R)</span>
+                <span className="ml-auto text-[11px] text-gray-200">{noTransfer.length} gostiju · {totalPax(noTransfer)} pax</span>
+              </div>
+              <Table records={noTransfer} />
+            </div>
+          )}
+        </div>
 
         <div className="h-4" />
       </div>

@@ -537,25 +537,25 @@ export default function ArrivalList() {
     <div className="flex flex-col h-screen overflow-hidden bg-gray-50">
 
       {/* ── Toolbar ─────────────────────────────────────── */}
-      <div className="px-5 py-2.5 border-b bg-white flex-shrink-0 flex items-center gap-3 no-print shadow-sm">
-        <span className="text-sm font-bold text-gray-700">🛬 Dolazak</span>
-        <input type="date" className="input text-sm w-38 h-8 cursor-pointer" value={selectedDate}
+      <div className="px-3 md:px-5 py-2 md:py-2.5 border-b bg-white flex-shrink-0 flex items-center gap-2 md:gap-3 no-print shadow-sm">
+        <span className="text-sm font-bold text-gray-700 hidden md:block">🛬 Dolazak</span>
+        <input type="date" className="input text-sm h-8 cursor-pointer" value={selectedDate}
           onClick={e => e.target.showPicker?.()}
           onChange={e => setSelectedDate(e.target.value)} />
-        <span className="text-xs text-gray-400 ml-1">
+        <span className="text-xs text-gray-400">
           {loading ? '⏳' : `${total} gostiju`}
         </span>
-        <div className="ml-auto flex gap-2">
+        <div className="ml-auto flex gap-1.5 md:gap-2">
           <button onClick={loadData}
-            className="px-2.5 py-1.5 rounded text-xs border border-gray-300 hover:bg-gray-50 text-gray-600">
-            ↻ Osvježi
+            className="px-2 md:px-2.5 py-1.5 rounded text-xs border border-gray-300 hover:bg-gray-50 text-gray-600">
+            ↻
           </button>
           <button onClick={exportToExcel}
-            className="px-2.5 py-1.5 rounded text-xs border border-gray-300 hover:bg-gray-50 text-gray-600">
+            className="hidden md:block px-2.5 py-1.5 rounded text-xs border border-gray-300 hover:bg-gray-50 text-gray-600">
             📥 Excel
           </button>
           <button onClick={() => window.print()}
-            className="px-2.5 py-1.5 rounded text-xs border border-gray-300 hover:bg-gray-50 text-gray-600">
+            className="hidden md:block px-2.5 py-1.5 rounded text-xs border border-gray-300 hover:bg-gray-50 text-gray-600">
             🖨 Štampaj
           </button>
         </div>
@@ -575,7 +575,7 @@ export default function ArrivalList() {
       </div>
 
       {/* ── Sadržaj ─────────────────────────────────────── */}
-      <div className="flex-1 overflow-auto px-4 py-2">
+      <div className="flex-1 overflow-auto px-2 md:px-4 py-2">
 
         {!loading && groups.length === 0 && noTransfer.length === 0 && (
           <div className="text-center text-gray-400 py-20">
@@ -584,53 +584,125 @@ export default function ArrivalList() {
           </div>
         )}
 
-        {/* Grupe po dolaznom letu */}
-        {groups.map(({ flight, schedule, records }) => (
-          <div key={flight} className="mb-4 rounded overflow-hidden border border-sky-200 shadow-sm flight-group">
-            <div className="flex items-center gap-2 bg-sky-800 text-white px-3 py-1.5">
-              <span className="font-mono font-bold">{flight}</span>
-              {schedule && (
-                <>
-                  <span className="text-sky-400">·</span>
-                  <span className="font-mono text-amber-300 font-bold text-sm">{fmtTime(schedule.scheduled_time)}</span>
-                  <span className="text-[11px] bg-white/10 px-1.5 py-px rounded font-medium">{schedule.airport}</span>
-                </>
-              )}
-              {/* Bulk pickup pomak + lista telefona — skriva se pri štampanju */}
-              <div className="flex items-center gap-0.5 ml-3 border-l border-sky-600 pl-3 no-print">
-                <span className="text-[9px] text-sky-300 mr-1">pickup:</span>
-                {[-15,-10,-5,5,10,15].map(m => (
-                  <button key={m} onClick={() => shiftFlight(records, m)}
-                    className="text-[9px] font-mono px-1 py-px rounded bg-white/10 hover:bg-white/30 text-white transition-colors"
-                    title={`Pomjeri sve pickup-e za ${m > 0 ? '+' : ''}${m} min`}>
-                    {m > 0 ? '+' : ''}{m}
-                  </button>
-                ))}
-                <button
-                  onClick={() => openPhoneList(flight, schedule, records)}
-                  className="ml-2 text-[9px] font-medium px-2 py-px rounded bg-white/15 hover:bg-white/30 text-white border border-white/20 transition-colors"
-                  title="Otvori formu za upis brojeva telefona">
-                  📞 Telefoni
-                </button>
+        {/* ── MOBILE card view ── */}
+        <div className="md:hidden space-y-3">
+          {groups.map(({ flight, schedule, records }) => (
+            <div key={flight} className="rounded-lg overflow-hidden border border-sky-200 shadow-sm">
+              {/* Let header */}
+              <div className="flex items-center gap-2 bg-sky-800 text-white px-3 py-2">
+                <span className="font-mono font-bold text-sm">🛬 {flight}</span>
+                {schedule && (
+                  <>
+                    <span className="font-mono text-amber-300 font-bold">{fmtTime(schedule.scheduled_time)}</span>
+                    <span className="text-xs bg-white/10 px-1.5 py-px rounded">{schedule.airport}</span>
+                  </>
+                )}
+                <span className="ml-auto text-xs text-sky-200 tabular-nums">{records.length} · {totalPax(records)} pax</span>
               </div>
-              <span className="ml-auto text-[11px] text-sky-200 tabular-nums">
-                {records.length} gostiju · {totalPax(records)} pax
-              </span>
+              {/* Kartice gostiju */}
+              {records.map((r, i) => {
+                const tr = r.arr_transfer_alias
+                const lbCls = { GRP: 'border-l-blue-500', SHA: 'border-l-purple-500', IND: 'border-l-amber-500' }[tr] || 'border-l-gray-200'
+                const pax = (r.adult||0)+(r.child||0)+(r.infant||0)
+                return (
+                  <div key={r.id} className={`border-b border-gray-100 border-l-4 ${lbCls} ${i%2===0?'bg-white':'bg-gray-50/50'} px-3 py-2.5`}>
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0 flex-1">
+                        <div className="font-semibold text-sm text-gray-800 truncate">{r.tourist_name}</div>
+                        <div className="text-xs text-gray-500 truncate mt-0.5">{r.hotel_name}</div>
+                      </div>
+                      <div className="flex-shrink-0 text-right">
+                        <span className="text-xs text-gray-400">{pax} pax</span>
+                        {TR_LABEL[tr] && <span className={`ml-1 text-[9px] font-bold px-1 py-px rounded ${TR_LABEL[tr].cls}`}>{TR_LABEL[tr].text}</span>}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                      {/* Vozilo */}
+                      {r.arr_assigned_vehicle ? (
+                        <span className="text-xs font-bold text-gray-700 bg-gray-100 px-1.5 py-px rounded">{r.arr_assigned_vehicle}</span>
+                      ) : r.arr_vehicle_type ? (
+                        <span className={`text-[10px] font-bold px-1.5 py-px rounded ${VEH_IDLE[r.arr_vehicle_type] || 'bg-gray-100 text-gray-600'}`}>{r.arr_vehicle_type}</span>
+                      ) : null}
+                      {/* Dep let + pickup */}
+                      {(r._depCanonical || r.dep_flight_name) && (
+                        <span className="text-xs font-mono text-orange-600 font-semibold">🛫 {r._depCanonical || r.dep_flight_name}</span>
+                      )}
+                      {r._pickupTime && (
+                        <span
+                          onClick={() => startPickup(r)}
+                          className="text-xs font-mono font-bold text-red-600 cursor-pointer bg-red-50 px-1.5 py-px rounded"
+                        >{r._pickupTime}</span>
+                      )}
+                      {r._nights ? <span className="text-[10px] text-purple-600 font-bold">{r._nights}n</span> : null}
+                    </div>
+                  </div>
+                )
+              })}
             </div>
-            <Table records={records} />
-          </div>
-        ))}
+          ))}
+          {noTransfer.length > 0 && (
+            <div className="rounded-lg overflow-hidden border border-gray-200 shadow-sm">
+              <div className="bg-gray-500 text-white px-3 py-2 flex items-center justify-between">
+                <span className="font-semibold text-sm">BEZ TRANSFERA</span>
+                <span className="text-xs text-gray-200">{noTransfer.length} · {totalPax(noTransfer)} pax</span>
+              </div>
+              {noTransfer.map((r, i) => (
+                <div key={r.id} className={`flex items-center px-3 py-2.5 border-b border-gray-100 ${i%2===0?'bg-white':'bg-gray-50/50'}`}>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-medium text-sm text-gray-700 truncate">{r.tourist_name}</div>
+                    <div className="text-xs text-gray-400 truncate">{r.hotel_name}</div>
+                  </div>
+                  <span className="text-xs text-gray-400 ml-2">{(r.adult||0)+(r.child||0)+(r.infant||0)} pax</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
 
-        {/* NO TR-R */}
-        {noTransfer.length > 0 && (
-          <div className="mb-4 rounded overflow-hidden border border-gray-200 shadow-sm flight-group">
-            <div className="flex items-center gap-3 bg-gray-500 text-white px-3 py-1.5">
-              <span className="font-semibold text-sm">BEZ TRANSFERA (NO TR-R)</span>
-              <span className="ml-auto text-[11px] text-gray-200">{noTransfer.length} gostiju · {totalPax(noTransfer)} pax</span>
+        {/* ── DESKTOP table view ── */}
+        <div className="hidden md:block">
+          {groups.map(({ flight, schedule, records }) => (
+            <div key={flight} className="mb-4 rounded overflow-hidden border border-sky-200 shadow-sm flight-group">
+              <div className="flex items-center gap-2 bg-sky-800 text-white px-3 py-1.5">
+                <span className="font-mono font-bold">{flight}</span>
+                {schedule && (
+                  <>
+                    <span className="text-sky-400">·</span>
+                    <span className="font-mono text-amber-300 font-bold text-sm">{fmtTime(schedule.scheduled_time)}</span>
+                    <span className="text-[11px] bg-white/10 px-1.5 py-px rounded font-medium">{schedule.airport}</span>
+                  </>
+                )}
+                <div className="flex items-center gap-0.5 ml-3 border-l border-sky-600 pl-3 no-print">
+                  <span className="text-[9px] text-sky-300 mr-1">pickup:</span>
+                  {[-15,-10,-5,5,10,15].map(m => (
+                    <button key={m} onClick={() => shiftFlight(records, m)}
+                      className="text-[9px] font-mono px-1 py-px rounded bg-white/10 hover:bg-white/30 text-white transition-colors"
+                      title={`Pomjeri sve pickup-e za ${m > 0 ? '+' : ''}${m} min`}>
+                      {m > 0 ? '+' : ''}{m}
+                    </button>
+                  ))}
+                  <button onClick={() => openPhoneList(flight, schedule, records)}
+                    className="ml-2 text-[9px] font-medium px-2 py-px rounded bg-white/15 hover:bg-white/30 text-white border border-white/20 transition-colors">
+                    📞 Telefoni
+                  </button>
+                </div>
+                <span className="ml-auto text-[11px] text-sky-200 tabular-nums">
+                  {records.length} gostiju · {totalPax(records)} pax
+                </span>
+              </div>
+              <Table records={records} />
             </div>
-            <Table records={noTransfer} />
-          </div>
-        )}
+          ))}
+          {noTransfer.length > 0 && (
+            <div className="mb-4 rounded overflow-hidden border border-gray-200 shadow-sm flight-group">
+              <div className="flex items-center gap-3 bg-gray-500 text-white px-3 py-1.5">
+                <span className="font-semibold text-sm">BEZ TRANSFERA (NO TR-R)</span>
+                <span className="ml-auto text-[11px] text-gray-200">{noTransfer.length} gostiju · {totalPax(noTransfer)} pax</span>
+              </div>
+              <Table records={noTransfer} />
+            </div>
+          )}
+        </div>
 
         <div className="h-4" />
       </div>
