@@ -47,7 +47,7 @@ function GuestCard({ rec, onPhoneSave }) {
       <div className="flex items-start justify-between gap-2 mb-2">
         <div className="flex-1 min-w-0">
           <div className="font-bold text-gray-900 text-base leading-tight truncate">
-            {rec.tourist || '—'}
+            {rec.tourist_name || '—'}
           </div>
           <div className="text-sm text-gray-500 mt-0.5 truncate">
             🏨 {rec.hotel_name || '—'}
@@ -119,11 +119,11 @@ export default function RepArrivals() {
 
     const { data, error } = await supabase
       .from('rooming_list')
-      .select('claim_inc, date_beg, tourist, hotel_name, arr_flight_name, adult, child, phone')
+      .select('claim_inc, date_beg, tourist_name, hotel_name, arr_flight_name, adult, child, phone')
       .eq('date_beg', date)
       .not('arr_flight_name', 'is', null)
       .order('arr_flight_name')
-      .order('tourist')
+      .order('tourist_name')
 
     if (error) {
       // Najčešći uzrok: phone kolona ne postoji — treba pokrenuti SQL migraciju
@@ -159,7 +159,7 @@ export default function RepArrivals() {
       if (flight && g.arr_flight_name !== flight) return false
       if (!q) return true
       return (
-        (g.tourist    || '').toLowerCase().includes(q) ||
+        (g.tourist_name || '').toLowerCase().includes(q) ||
         (g.hotel_name || '').toLowerCase().includes(q) ||
         String(g.claim_inc).includes(q) ||
         (g.arr_flight_name || '').toLowerCase().includes(q)
