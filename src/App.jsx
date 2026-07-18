@@ -25,6 +25,7 @@ import SalePrices     from './pages/SalePrices'
 import Reports        from './pages/Reports'
 import VehicleCosts        from './pages/admin/VehicleCosts'
 import SupplierAccounting  from './pages/admin/SupplierAccounting'
+import RepArrivals         from './pages/operations/RepArrivals'
 
 // ── Auth Context ─────────────────────────────────────────────
 const AuthCtx = createContext(null)
@@ -185,6 +186,10 @@ export default function App() {
             {/* Izvještaji */}
             <Route path="reports"
               element={<RequirePermission permKey="reports"><Reports /></RequirePermission>} />
+
+            {/* Predstavnik — mobilna lista dolazaka */}
+            <Route path="rep"
+              element={<RequirePermission permKey="rep_arrivals"><RepArrivals /></RequirePermission>} />
 
             {/* Korisnici — samo admin */}
             <Route path="admin/users"

@@ -18,6 +18,7 @@ const PAGE_GROUPS = [
       { key: 'transfers_arrival',   label: 'Lista dolazaka',    icon: '🛬' },
       { key: 'rooming',             label: 'Rooming List',      icon: '🛏️' },
       { key: 'flights',             label: 'Rasporedi letova',  icon: '✈️' },
+      { key: 'rep_arrivals',        label: 'Brojevi telefona',  icon: '📱' },
     ],
   },
   {
