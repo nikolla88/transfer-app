@@ -105,19 +105,18 @@ export default function RepArrivals() {
   const [date,    setDate]    = useState(todayStr())
   const [guests,  setGuests]  = useState([])
   const [loading, setLoading] = useState(false)
+  const [loadErr, setLoadErr] = useState(null)
   const [query,   setQuery]   = useState('')
-  const [flight,  setFlight]  = useState('') // filter po letu
+  const [flight,  setFlight]  = useState('')
   const searchRef = useRef(null)
 
-  useEffect(() => {
-    load()
-    // Auto-focus search na desktop; na mobilnom ne radimo auto-focus
-    // jer se pojavljivanje tastature odmah zbunjuje korisnika
-  }, [date])
+  useEffect(() => { load() }, [date])
 
   async function load() {
     setLoading(true)
+    setLoadErr(null)
     setQuery('')
+
     const { data, error } = await supabase
       .from('rooming_list')
       .select('claim_inc, date_beg, tourist, hotel_name, arr_flight_name, adult, child, phone')
@@ -126,7 +125,15 @@ export default function RepArrivals() {
       .order('arr_flight_name')
       .order('tourist')
 
-    if (!error) setGuests(data || [])
+    if (error) {
+      // Najčešći uzrok: phone kolona ne postoji — treba pokrenuti SQL migraciju
+      setLoadErr(error.message?.includes('phone')
+        ? 'Kolona "phone" ne postoji u bazi. Pokreni supabase_phone.sql u Supabase SQL editoru:\n\nALTER TABLE rooming_list ADD COLUMN IF NOT EXISTS phone TEXT;'
+        : 'Greška: ' + error.message
+      )
+    } else {
+      setGuests(data || [])
+    }
     setLoading(false)
   }
 
@@ -260,7 +267,17 @@ export default function RepArrivals() {
           </div>
         )}
 
-        {!loading && guests.length === 0 && (
+        {!loading && loadErr && (
+          <div className="mx-1 mt-4 rounded-xl border border-red-300 bg-red-50 p-4">
+            <p className="font-semibold text-red-700 mb-2">⚠️ Greška pri učitavanju</p>
+            <pre className="text-xs text-red-600 whitespace-pre-wrap font-mono leading-relaxed">{loadErr}</pre>
+            <button onClick={load} className="mt-3 px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-medium">
+              Pokušaj ponovo
+            </button>
+          </div>
+        )}
+
+        {!loading && !loadErr && guests.length === 0 && (
           <div className="text-center py-24">
             <div className="text-5xl mb-4">✈️</div>
             <p className="text-gray-500 font-medium">Nema dolazaka za {fmtDate(date)}</p>
@@ -268,7 +285,7 @@ export default function RepArrivals() {
           </div>
         )}
 
-        {!loading && guests.length > 0 && filtered.length === 0 && (
+        {!loading && !loadErr && guests.length > 0 && filtered.length === 0 && (
           <div className="text-center py-16">
             <div className="text-4xl mb-3">🔍</div>
             <p className="text-gray-500">Nema rezultata za <strong>"{query}"</strong></p>
@@ -279,7 +296,7 @@ export default function RepArrivals() {
         )}
 
         {/* Grupe po letovima */}
-        {!loading && Object.entries(grouped).map(([flightName, recs]) => (
+        {!loading && !loadErr && Object.entries(grouped).map(([flightName, recs]) => (
           <div key={flightName} className="mb-5">
             {/* Let header */}
             <div className="flex items-center gap-2 mb-2 px-1">
