@@ -18,22 +18,28 @@ function GuestCard({ rec, onPhoneSave }) {
   const inputRef = useRef(null)
 
   // Sync ako se promijeni rec izvana (npr. refresh)
-  useEffect(() => { setPhone(rec.phone || '') }, [rec.phone])
+  // Skidamo vodeći + za prikaz u inputu (dodajemo ga nazad pri save)
+  useEffect(() => {
+    const p = rec.phone || ''
+    setPhone(p.startsWith('+') ? p.slice(1) : p)
+  }, [rec.phone])
 
   async function save(val) {
-    const trimmed = val.trim()
-    if (trimmed === (rec.phone || '')) return   // ništa novo
+    const digits  = val.trim().replace(/^\+/, '') // ukloni + ako ga je neko ukucao
+    const full    = digits ? '+' + digits : null  // uvijek čuvamo sa +
+    const current = rec.phone || null
+    if (full === current) return                  // ništa novo
     setSaving(true)
     const { error } = await supabase
       .from('rooming_list')
-      .update({ phone: trimmed || null })
+      .update({ phone: full })
       .eq('claim_inc', rec.claim_inc)
       .eq('date_beg', rec.date_beg)
     setSaving(false)
     if (!error) {
       setSaved(true)
       setTimeout(() => setSaved(false), 2000)
-      onPhoneSave(rec.claim_inc, rec.date_beg, trimmed || null)
+      onPhoneSave(rec.claim_inc, rec.date_beg, full)
     }
   }
 
@@ -68,17 +74,19 @@ function GuestCard({ rec, onPhoneSave }) {
         <span className="text-xs text-gray-500 flex-shrink-0">
           👥 {(rec.adult || 0) + (rec.child || 0)} gosta
         </span>
-        <div className="flex-1 relative">
+        <div className="flex-1 relative flex items-center">
+          <span className={`absolute left-3 font-mono font-bold text-sm select-none pointer-events-none
+            ${hasPhone ? 'text-green-600' : 'text-gray-400'}`}>+</span>
           <input
             ref={inputRef}
             type="tel"
-            inputMode="tel"
-            placeholder="Upiši tel. broj..."
+            inputMode="numeric"
+            placeholder="Broj telefona..."
             value={phone}
-            onChange={e => { setPhone(e.target.value); setSaved(false) }}
+            onChange={e => { setPhone(e.target.value.replace(/^\+/, '')); setSaved(false) }}
             onBlur={e => save(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter') { e.target.blur() } }}
-            className={`w-full text-sm font-mono rounded-lg px-3 py-2.5 border-2 outline-none transition-colors
+            className={`w-full text-sm font-mono rounded-lg pl-7 pr-8 py-2.5 border-2 outline-none transition-colors
               ${hasPhone
                 ? 'border-green-400 bg-white focus:border-green-500'
                 : 'border-gray-300 bg-gray-50 focus:border-brand-400 focus:bg-white'
