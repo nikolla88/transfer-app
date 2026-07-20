@@ -65,10 +65,13 @@ function AuthProvider({ children }) {
   // Ako nema profila u bazi (SQL nije pokrenut ili INSERT nije prošao)
   // → tretiramo kao admin da se ne blokira pristup
   const isAdmin = !profile || profile._fallback || profile?.role === 'admin'
+  const isRep   = profile?.role === 'rep'
 
   // Vrati nivo permisije za datu stranicu ('none' ako nije definirano)
   function perm(key) {
     if (isAdmin) return PERM_WRITE
+    // Predstavnik uvijek dobija pristup samo /rep stranici
+    if (isRep) return key === 'rep_arrivals' ? PERM_WRITE : PERM_NONE
     return profile?.permissions?.[key] ?? PERM_NONE
   }
 
@@ -91,7 +94,7 @@ function AuthProvider({ children }) {
   }
 
   return (
-    <AuthCtx.Provider value={{ session, profile, isAdmin, canRead, canWrite }}>
+    <AuthCtx.Provider value={{ session, profile, isAdmin, isRep, canRead, canWrite }}>
       {children}
     </AuthCtx.Provider>
   )
@@ -102,11 +105,13 @@ function RequireAuth({ children }) {
   return session ? children : <Navigate to="/login" replace />
 }
 
-// Zaštiti rutu: preusmjeri na /dashboard ako korisnik nema pristup stranici
+// Zaštiti rutu: preusmjeri na /dashboard (ili /rep za predstavnika) ako nema pristup
 // Za dashboard i __admin_only__ → prikaži poruku umjesto beskonačnog redirecta
 function RequirePermission({ permKey, children }) {
-  const { isAdmin, canRead } = useAuth()
+  const { isAdmin, isRep, canRead } = useAuth()
   if (isAdmin || canRead(permKey)) return children
+  // Predstavnik se uvijek šalje na /rep (ne na /dashboard)
+  if (isRep) return <Navigate to="/rep" replace />
   if (permKey === 'dashboard' || permKey === '__admin_only__') {
     return (
       <div className="flex h-full items-center justify-center text-gray-400 flex-col gap-3">
@@ -119,6 +124,12 @@ function RequirePermission({ permKey, children }) {
   return <Navigate to="/dashboard" replace />
 }
 
+// Index redirect: predstavnik → /rep, ostali → /dashboard
+function IndexRedirect() {
+  const { isRep } = useAuth()
+  return <Navigate to={isRep ? '/rep' : '/dashboard'} replace />
+}
+
 // ── App ──────────────────────────────────────────────────────
 export default function App() {
   return (
@@ -127,7 +138,7 @@ export default function App() {
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/" element={<RequireAuth><Layout /></RequireAuth>}>
-            <Route index element={<Navigate to="/dashboard" replace />} />
+            <Route index element={<IndexRedirect />} />
 
             {/* Operativne stranice */}
             <Route path="dashboard"

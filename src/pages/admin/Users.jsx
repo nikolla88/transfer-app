@@ -250,16 +250,20 @@ export default function Users() {
                     </td>
                     <td className="px-4 py-3">
                       <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
-                        u.role === 'admin'
-                          ? 'bg-amber-100 text-amber-700'
-                          : 'bg-sky-100 text-sky-700'
+                        u.role === 'admin' ? 'bg-amber-100 text-amber-700'
+                        : u.role === 'rep' ? 'bg-green-100 text-green-700'
+                        : 'bg-sky-100 text-sky-700'
                       }`}>
-                        {u.role === 'admin' ? '⭐ Administrator' : '🎧 Dispečer'}
+                        {u.role === 'admin' ? '⭐ Administrator'
+                          : u.role === 'rep' ? '📱 Predstavnik'
+                          : '🎧 Dispečer'}
                       </span>
                     </td>
                     <td className="px-4 py-3">
                       {u.role === 'admin' ? (
                         <span className="text-xs text-amber-600 font-medium">Pun pristup svemu</span>
+                      ) : u.role === 'rep' ? (
+                        <span className="text-xs text-green-600 font-medium">📱 Samo lista dolazaka</span>
                       ) : (
                         <span className="text-xs text-gray-500">
                           {writeCount > 0 && <span className="text-green-600 font-medium">{writeCount} piše</span>}
@@ -320,6 +324,7 @@ export default function Users() {
                   <label className="block text-sm font-medium text-gray-700 mb-1">Rola</label>
                   <select className="input w-full" value={newRole} onChange={e => setNewRole(e.target.value)}>
                     <option value="dispatcher">🎧 Dispečer</option>
+                    <option value="rep">📱 Predstavnik</option>
                     <option value="admin">⭐ Administrator</option>
                   </select>
                 </div>
@@ -353,6 +358,11 @@ export default function Users() {
                 <div>
                   <h3 className="text-sm font-semibold text-gray-700 mb-3">Permisije po stranicama</h3>
                   <PermissionsGrid perms={newPerms} onChange={(k, v) => setNewPerms(p => ({ ...p, [k]: v }))} />
+                </div>
+              )}
+              {newRole === 'rep' && (
+                <div className="p-4 bg-green-50 border border-green-200 rounded-lg text-sm text-green-800">
+                  📱 Predstavnik automatski dobija pristup samo stranici <strong>Lista dolazaka</strong>. Individualne permisije se ne primjenjuju.
                 </div>
               )}
 
@@ -393,6 +403,7 @@ export default function Users() {
                   <label className="block text-sm font-medium text-gray-700 mb-1">Rola</label>
                   <select className="input w-full" value={editRole} onChange={e => setEditRole(e.target.value)}>
                     <option value="dispatcher">🎧 Dispečer</option>
+                    <option value="rep">📱 Predstavnik</option>
                     <option value="admin">⭐ Administrator</option>
                   </select>
                 </div>
@@ -411,6 +422,11 @@ export default function Users() {
               {editRole === 'admin' && (
                 <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
                   ⭐ Administrator ima pun pristup svim stranicama. Individualne permisije se ne primjenjuju.
+                </div>
+              )}
+              {editRole === 'rep' && (
+                <div className="p-4 bg-green-50 border border-green-200 rounded-lg text-sm text-green-800">
+                  📱 Predstavnik automatski dobija pristup samo stranici <strong>Lista dolazaka</strong>. Individualne permisije se ne primjenjuju.
                 </div>
               )}
 

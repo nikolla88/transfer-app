@@ -37,7 +37,7 @@ const NAV_ITEMS = [
 export default function Layout() {
   const navigate  = useNavigate()
   const location  = useLocation()
-  const { session, profile, isAdmin, canRead } = useAuth()
+  const { session, profile, isAdmin, isRep, canRead } = useAuth()
   const [mobileOpen, setMobileOpen] = useState(false)
 
   // Zatvori meni pri svakoj navigaciji
@@ -50,6 +50,8 @@ export default function Layout() {
 
   // Filtriranje vidljivih stavki menija
   function isVisible(item) {
+    // Predstavnik vidi samo /rep stranicu
+    if (isRep) return item.permKey === 'rep_arrivals'
     if (!item.permKey) return true
     if (item.permKey === '__admin_only__') return isAdmin
     return isAdmin || canRead(item.permKey)
@@ -87,8 +89,10 @@ export default function Layout() {
             <div className="text-lg font-bold text-white">🚗 Transfer App</div>
             <div className="text-xs text-gray-400 mt-0.5">{session?.user?.email}</div>
             {profile && (
-              <div className={`text-xs mt-1 font-medium ${isAdmin ? 'text-amber-400' : 'text-sky-400'}`}>
-                {isAdmin ? '⭐ Administrator' : '🎧 Dispečer'}
+              <div className={`text-xs mt-1 font-medium ${
+                isAdmin ? 'text-amber-400' : isRep ? 'text-green-400' : 'text-sky-400'
+              }`}>
+                {isAdmin ? '⭐ Administrator' : isRep ? '📱 Predstavnik' : '🎧 Dispečer'}
               </div>
             )}
           </div>
