@@ -7,7 +7,27 @@ import { setDriveTimesMap, getDriveMinutes } from '../../lib/driveTime'
 import { generateContractPDF, contractFileName } from '../../lib/generateContract'
 import { getFlightStatusesByAirport, normalizeFlight } from '../../lib/flightStatus'
 
-const VEH_LBL = { car: 'CAR', minivan: 'MINIVAN', vclass: 'V CLASS' }
+const VEH_LBL = { car: 'CAR', car_comfort: 'COMFORT', minivan: 'MINIVAN', vclass: 'V CLASS' }
+
+// Obojeni badge za tip vozila — koristi se u rasporedu
+const VEH_BADGE_CLS = {
+  car:         'bg-blue-100 text-blue-700',
+  car_comfort: 'bg-sky-100 text-sky-700',
+  minivan:     'bg-green-100 text-green-700',
+  vclass:      'bg-purple-100 text-purple-700',
+}
+const VEH_BADGE_ICO = { car: '🚗', car_comfort: '🚙', minivan: '🚐', vclass: '⭐' }
+
+function VehTypeBadge({ type }) {
+  if (!type) return null
+  const cls = VEH_BADGE_CLS[type] || 'bg-gray-100 text-gray-600'
+  const ico = VEH_BADGE_ICO[type] || '🚗'
+  return (
+    <span className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold ${cls}`}>
+      {ico} {VEH_LBL[type] || type.toUpperCase()}
+    </span>
+  )
+}
 
 // ── Fuzzy hotel matching ──────────────────────────────────────────
 function matchHotel(excelName, dbHotels) {
@@ -1625,15 +1645,16 @@ function Section({ title, transfers, allTransfers, onVehicle, onRemove, onSplitC
                   <td className="td text-center">{t.pax}</td>
                   <td className="td">
                     <div className="flex gap-1 flex-wrap">
-                      {['car','minivan','vclass'].map(vt => (
+                      {['car','car_comfort','minivan','vclass'].map(vt => (
                         <button
                           key={vt}
                           onClick={() => onVehicle(idx, vt)}
                           className={`px-2 py-0.5 rounded text-xs font-medium border transition-colors ${
                             t.vehicle_needed === vt
-                              ? vt === 'car'     ? 'bg-blue-500 text-white border-blue-500'
-                              : vt === 'minivan' ? 'bg-green-500 text-white border-green-500'
-                              :                    'bg-purple-500 text-white border-purple-500'
+                              ? vt === 'car'         ? 'bg-blue-500 text-white border-blue-500'
+                              : vt === 'car_comfort' ? 'bg-sky-500 text-white border-sky-500'
+                              : vt === 'minivan'     ? 'bg-green-500 text-white border-green-500'
+                              :                        'bg-purple-500 text-white border-purple-500'
                               : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'
                           }`}
                         >
@@ -1810,10 +1831,23 @@ function VehicleCard({ group, isExternal, allVehicles = [], suppliers = [], onRe
 
   return (
     <div className={`card border ${headerColor}`}>
-      <div className={`px-4 py-2 border-b ${headerColor} flex items-center gap-2 font-semibold`}>
+      <div className={`px-4 py-2 border-b ${headerColor} flex items-center gap-2 font-semibold flex-wrap`}>
         {isExternal ? '🤝' : vehicle.type === 'vclass' ? '⭐' : vehicle.type === 'minivan' ? '🚐' : '🚗'}
         {vehicle.name}
         <span className="text-xs font-normal text-gray-500">({jobs.length} transfer{jobs.length !== 1 ? 'a' : ''})</span>
+        {/* Za eksterni blok: prikaži mini-pregled tipova vozila koji su potrebni */}
+        {isExternal && (() => {
+          const counts = {}
+          for (const j of jobs) {
+            const vt = j.vehicle_needed || 'car'
+            counts[vt] = (counts[vt] || 0) + 1
+          }
+          return Object.entries(counts).map(([vt, cnt]) => (
+            <span key={vt} className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold ${VEH_BADGE_CLS[vt] || 'bg-gray-100 text-gray-600'}`}>
+              {VEH_BADGE_ICO[vt] || '🚗'} {cnt}× {VEH_LBL[vt] || vt}
+            </span>
+          ))
+        })()}
       </div>
       <div className="divide-y">
         {[...jobs].sort((a,b) => a.pickup_time?.localeCompare(b.pickup_time)).map((t, i) => {
@@ -1938,6 +1972,12 @@ function VehicleCard({ group, isExternal, allVehicles = [], suppliers = [], onRe
                     {isMerged && <span className="font-normal text-blue-400"> (spojeno)</span>}
                     {isSplit  && <span className="font-bold text-rose-500"> ⚠ razdvojeno</span>}
                   </div>
+                  {/* Tip vozila potreban za ovaj transfer */}
+                  {t.vehicle_needed && (
+                    <div className="mt-0.5">
+                      <VehTypeBadge type={t.vehicle_needed} />
+                    </div>
+                  )}
                   {!isMerged && (
                     <FlightBadge
                       flightNumber={t.flight_number}
