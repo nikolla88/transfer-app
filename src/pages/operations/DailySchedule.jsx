@@ -1260,6 +1260,21 @@ ${vehHTML || '<p style="color:#999">Nema raspoređenih vozila.</p>'}
                 <span className="text-sm text-gray-400 italic">Odaberi još jedan za spajanje</span>
               )}
 
+              {/* Prebaci sve u Externe */}
+              {scheduled.some(t => t.assignedVehicle) && selectedIds.size === 0 && (
+                <button
+                  onClick={() => {
+                    if (confirm('Prebaciti sve transfere u Externe?')) {
+                      setScheduled(prev => prev.map(t => ({ ...t, assignedVehicle: null })))
+                    }
+                  }}
+                  className="px-3 py-1.5 rounded text-sm font-medium bg-orange-500 text-white hover:bg-orange-600 transition-colors"
+                  title="Ukloni dodjelu vozila sa svih transfera — prebaci u Externe"
+                >
+                  🤝 Prebaci sve u Externe
+                </button>
+              )}
+
               {/* Reshuffle — prikaži samo ako ima neraspoređenih */}
               {scheduled.some(t => !t.assignedVehicle) && selectedIds.size === 0 && (
                 <button
