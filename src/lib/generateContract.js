@@ -37,8 +37,20 @@ function buildHTML(transfer, vehicle, dateStr) {
   const pax     = transfer.pax || 1
   const tourist = transfer.tourist || ''
 
+  // Ako imamo stvarna imena svih putnika (all_passengers, iz rooming_list.all_passengers),
+  // koristimo njih. Ako ne (stari podaci / rezervacija bez unesenih imena), ponašanje
+  // ostaje isto kao i do sad - ponavljamo poznato ime onoliko puta koliko ima putnika.
+  const realNames = (transfer.all_passengers || '')
+    .split(';')
+    .map(n => n.trim())
+    .filter(Boolean)
+
   const passengers = []
-  for (let i = 0; i < pax && i < 8; i++) passengers.push(tourist)
+  if (realNames.length > 0) {
+    for (let i = 0; i < realNames.length && i < 8; i++) passengers.push(realNames[i])
+  } else {
+    for (let i = 0; i < pax && i < 8; i++) passengers.push(tourist)
+  }
   while (passengers.length < 8) passengers.push('')
 
   const ROWS = [

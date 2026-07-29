@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { parseRoomingXlsx } from '../lib/roomingParser'
+import { parsePassengerNamesXlsx } from '../lib/passengerNamesParser'
 import { buildFlightMatcher } from '../lib/flightMatcher'
 
 // ── Kolone tabele ─────────────────────────────────────────────────
@@ -45,6 +46,11 @@ export default function RoomingList() {
   const [importMsg,   setImportMsg]   = useState('')
   const [editRow,     setEditRow]     = useState(null)
   const [saving,      setSaving]      = useState(false)
+
+  // ── Uvoz imena putnika (all_passengers) ─────────────────────────
+  const [importingNames, setImportingNames] = useState(false)
+  const [importNamesMsg, setImportNamesMsg] = useState('')
+  const namesFileRef = useRef()
   const urlSearch = searchParams.get('search') || ''
   const [filters,     setFilters]     = useState({ ...EMPTY_FILTERS, search: urlSearch })
   const [applied,     setApplied]     = useState(EMPTY_FILTERS)
@@ -349,6 +355,56 @@ export default function RoomingList() {
     setTimeout(() => setImportMsg(''), 5000)
   }
 
+  // ── Uvoz imena putnika (all_passengers) ─────────────────────────
+  // Čita mali Excel (claim_inc, svi_gosti) - rezultat SQL Server skripte
+  // sqlserver_generate_all_passengers_updates.sql - i upisuje imena direktno
+  // u rooming_list.all_passengers, po broju rezervacije. Ne dira nijedno
+  // drugo polje niti postojeći Excel import rooming liste.
+  async function handleNamesFile(e) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    e.target.value = ''
+    setImportingNames(true)
+    setImportNamesMsg('⏳ Parsiranje...')
+
+    try {
+      const buffer  = await file.arrayBuffer()
+      const records = await parsePassengerNamesXlsx(buffer)
+
+      if (records.length === 0) {
+        setImportNamesMsg('⚠️ Fajl ne sadrži validne zapise (claim_inc + svi_gosti).')
+        setImportingNames(false)
+        return
+      }
+
+      let done = 0, failed = 0
+      const CONCURRENCY = 8
+      for (let i = 0; i < records.length; i += CONCURRENCY) {
+        const batch = records.slice(i, i + CONCURRENCY)
+        const results = await Promise.all(batch.map(r =>
+          supabase.from('rooming_list')
+            .update({ all_passengers: r.all_passengers })
+            .eq('claim_inc', r.claim_inc)
+        ))
+        results.forEach(res => { if (res.error) failed++; else done++ })
+        setImportNamesMsg(`⏳ ${done + failed} / ${records.length}...`)
+      }
+
+      setImportNamesMsg(
+        failed > 0
+          ? `⚠️ Ažurirano ${done} · Greška kod ${failed} (provjeri da li ti brojevi rezervacija postoje u rooming listi)`
+          : `✅ Ažurirano ${done} rezervacija sa imenima putnika`
+      )
+      await load(applied)
+    } catch (err) {
+      console.error('[ImportNames] Greška:', err)
+      setImportNamesMsg(`❌ Greška: ${err.message || String(err)}`)
+    }
+
+    setImportingNames(false)
+    setTimeout(() => setImportNamesMsg(''), 6000)
+  }
+
   // ── Edit modal ────────────────────────────────────────────────
   function openEdit(row)  { setEditRow({ ...row }) }
   function closeEdit()    { setEditRow(null) }
@@ -418,6 +474,14 @@ export default function RoomingList() {
               {importing ? '⏳ Uvoz...' : '📥 Uvezi Excel'}
             </button>
             {importMsg && <span className="text-sm font-medium">{importMsg}</span>}
+
+            <input ref={namesFileRef} type="file" accept=".xlsx" onChange={handleNamesFile} className="hidden" />
+            <button onClick={() => namesFileRef.current.click()} disabled={importingNames}
+              title="Uvezi Excel sa kolonama claim_inc i svi_gosti (rezultat SQL Server upita za imena putnika)"
+              className="px-3 py-1.5 rounded text-sm font-medium bg-violet-600 text-white hover:bg-violet-700 disabled:opacity-50 transition-colors">
+              {importingNames ? '⏳ Uvoz...' : '📇 Uvezi imena putnika'}
+            </button>
+            {importNamesMsg && <span className="text-sm font-medium">{importNamesMsg}</span>}
           </div>
         </div>
 
@@ -542,7 +606,9 @@ export default function RoomingList() {
                     const rawVal = c.type !== 'transfer' ? (row[c.key] ?? '') : ''
                     const tipText = c.type === 'transfer'
                       ? [row[c.key], row[c.vehKey]].filter(Boolean).join(' · ') || 'Klikni za izmjenu'
-                      : String(rawVal)
+                      : c.key === 'tourist_name' && row.all_passengers
+                        ? `Svi putnici: ${row.all_passengers}`
+                        : String(rawVal)
                     return (
                       <td key={c.key} style={{ width: c.width }}
                         className={`px-2 py-1 border-r border-gray-100 align-middle ${c.type === 'transfer' ? 'cursor-pointer hover:bg-yellow-50' : ''}`}

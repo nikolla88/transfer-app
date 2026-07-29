@@ -208,6 +208,7 @@ export default function DailySchedule() {
           type:             'arr',
           reservation_id:   String(r.claim_inc),
           tourist:          r.tourist_name,
+          all_passengers:   r.all_passengers || null,
           hotel_name:       r.hotel_name,
           zone_name:        hotel?.zones?.name || null,
           flight_number:    r.arr_flight_name || null,
@@ -238,6 +239,7 @@ export default function DailySchedule() {
           type:             'dep',
           reservation_id:   String(r.claim_inc),
           tourist:          r.tourist_name,
+          all_passengers:   r.all_passengers || null,
           hotel_name:       r.hotel_name,
           zone_name:        hotel?.zones?.name || null,
           flight_number:    r.dep_flight_name || null,
@@ -354,6 +356,9 @@ export default function DailySchedule() {
           _isCombined:    true,
           _combinedParts: parts,
           tourist:        parts.map(p => p.tourist).join('\n'),
+          all_passengers: parts
+            .flatMap(p => (p.all_passengers || p.tourist || '').split(';').map(n => n.trim()).filter(Boolean))
+            .join('; ') || null,
           pax:  parts.reduce((s, p) => s + (p.pax  || 0), 0),
           adl:  parts.reduce((s, p) => s + (p.adl  || 0), 0),
           chd:  parts.reduce((s, p) => s + (p.chd  || 0), 0),
@@ -529,6 +534,7 @@ export default function DailySchedule() {
       type:             t.type,
       reservation_id:   t.reservation_id,
       tourist:          t.tourist,
+      all_passengers:   t.all_passengers || null,
       hotel_name:       t.hotel_name,
       zone_name:        null,
       flight_number:    t.flight_number,
@@ -613,6 +619,9 @@ export default function DailySchedule() {
       reservation_id: mergedId,
       pickup_time:    primaryPickup,
       pax:            totalPax,
+      all_passengers: parts
+        .flatMap(p => (p.all_passengers || p.tourist || '').split(';').map(n => n.trim()).filter(Boolean))
+        .join('; ') || null,
       assignedVehicle: vehicle,
       assignedSupplier: null,
       _isMerged:      true,
@@ -1122,6 +1131,9 @@ ${vehHTML || '<p style="color:#999">Nema raspoređenih vozila.</p>'}
         tourist:             t._isMerged
           ? t._mergedParts.map(p => p.tourist).join(' + ')
           : t.tourist,
+        all_passengers:      t._isMerged
+          ? t._mergedParts.flatMap(p => (p.all_passengers || p.tourist || '').split(';').map(n => n.trim()).filter(Boolean)).join('; ') || null
+          : (t.all_passengers || null),
         pax:                 t.pax,
         adl:                 t.adl,
         chd:                 t.chd,
