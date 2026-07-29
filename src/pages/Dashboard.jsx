@@ -20,6 +20,17 @@ export default function Dashboard() {
   const [fetchingFlight, setFetchingFlight] = useState(false)
   const [tgStatus,       setTgStatus]       = useState('')
   const [tgSending,      setTgSending]      = useState(false)
+  // Prazan Set = pošalji svima (podrazumijevano ponašanje, kao i do sad).
+  // Čim se nešto čekira, šalje se SAMO čekiranim vozilima.
+  const [selectedVids,   setSelectedVids]   = useState(new Set())
+
+  function toggleVehicleSelect(vid) {
+    setSelectedVids(prev => {
+      const next = new Set(prev)
+      next.has(vid) ? next.delete(vid) : next.add(vid)
+      return next
+    })
+  }
 
   const todayStr = new Date().toISOString().slice(0, 10)
   const [date, setDate] = useState(todayStr)
@@ -31,6 +42,7 @@ export default function Dashboard() {
   useEffect(() => {
     load()
     setFlightStatuses({})  // resetuj status kod promjene datuma
+    setSelectedVids(new Set())  // resetuj selekciju vozača kod promjene datuma
   }, [date])
 
   async function loadDriversVehicles() {
@@ -138,7 +150,12 @@ export default function Dashboard() {
 
     try {
       // Grupiši transfere po vozilu (bez eksternih)
-      const ownTransfers = transfers.filter(t => t.assigned_vehicle_id && t.vehicles)
+      // Ako je nešto čekirano (selectedVids), šalji SAMO tim vozilima.
+      // Ako ništa nije čekirano, šalji svima (isto ponašanje kao i do sad).
+      const ownTransfers = transfers.filter(t =>
+        t.assigned_vehicle_id && t.vehicles &&
+        (selectedVids.size === 0 || selectedVids.has(t.assigned_vehicle_id))
+      )
       const byVehicle    = {}
       for (const t of ownTransfers) {
         const vid = t.assigned_vehicle_id
@@ -525,9 +542,19 @@ ${vehHTML || '<p style="color:#999">Nema raspoređenih vozila.</p>'}
             <button
               onClick={sendTelegram}
               disabled={tgSending}
+              title={selectedVids.size > 0 ? `Šalje se samo ${selectedVids.size} čekiranom vozaču` : 'Šalje se svim vozačima (ako želiš samo nekima, čekiraj ih ispod)'}
               className="px-3 py-1.5 rounded text-sm font-medium bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-50 transition-colors"
             >
-              {tgSending ? '⏳ Slanje...' : '✈️ Pošalji Telegram'}
+              {tgSending
+                ? '⏳ Slanje...'
+                : selectedVids.size > 0
+                  ? `✈️ Pošalji Telegram (${selectedVids.size})`
+                  : '✈️ Pošalji Telegram'}
+            </button>
+          )}
+          {selectedVids.size > 0 && !tgSending && (
+            <button onClick={() => setSelectedVids(new Set())} className="btn-ghost text-sm">
+              ✕ Poništi selekciju
             </button>
           )}
           {tgStatus && <span className="text-sm font-medium">{tgStatus}</span>}
@@ -559,7 +586,14 @@ ${vehHTML || '<p style="color:#999">Nema raspoređenih vozila.</p>'}
       ) : (
         <div className="space-y-4">
           {groups.map((g, i) => (
-            <VehicleCard key={i} group={g} flightStatuses={flightStatuses} />
+            <VehicleCard
+              key={i}
+              group={g}
+              flightStatuses={flightStatuses}
+              canSelect={canSend && g.vehicle.type !== 'external'}
+              selected={selectedVids.has(g.vehicle.id)}
+              onToggleSelect={() => toggleVehicleSelect(g.vehicle.id)}
+            />
           ))}
         </div>
       )}
@@ -606,7 +640,7 @@ function FlightBadge({ flightNumber, type, flightStatuses }) {
 }
 
 // ── Vehicle card ──────────────────────────────────────────────────
-function VehicleCard({ group, flightStatuses = {} }) {
+function VehicleCard({ group, flightStatuses = {}, canSelect = false, selected = false, onToggleSelect }) {
   const { vehicle, jobs } = group
   const isExternal = vehicle.type === 'external'
 
@@ -622,8 +656,17 @@ function VehicleCard({ group, flightStatuses = {} }) {
     : '🚗'
 
   return (
-    <div className={`card border ${headerCls}`}>
+    <div className={`card border ${headerCls} ${selected ? 'ring-2 ring-blue-400' : ''}`}>
       <div className={`px-4 py-2 border-b ${headerCls} flex items-center gap-2 font-semibold`}>
+        {canSelect && (
+          <input
+            type="checkbox"
+            checked={selected}
+            onChange={onToggleSelect}
+            title="Čekiraj da pošalješ Telegram samo ovom vozaču"
+            className="w-4 h-4 mr-1 cursor-pointer"
+          />
+        )}
         <span>{icon}</span>
         <span>{vehicle.name}</span>
         <span className="text-xs font-normal text-gray-500">
@@ -636,8 +679,8 @@ function VehicleCard({ group, flightStatuses = {} }) {
             {/* Pickup time + type */}
             <div className="flex-shrink-0 w-16 text-center">
               <div className="font-mono text-sm font-bold">{t.pickup_time?.slice(0,5) || '--:--'}</div>
-              <div className={`text-xs mt-0.5 ${t.type === 'arr' ? 'text-green-600' : 'text-blue-600'}`}>
-                {t.type === 'arr' ? '🛬 arr' : '🛫 dep'}
+              <div className={`text-xs mt-0.5 ${t.type === 'arr' ? 'text-green-600' : t.type === 'hh' ? 'text-purple-600' : 'text-blue-600'}`}>
+                {t.type === 'arr' ? '🛬 arr' : t.type === 'hh' ? '🔄 hh' : '🛫 dep'}
               </div>
             </div>
 
@@ -647,7 +690,9 @@ function VehicleCard({ group, flightStatuses = {} }) {
               <div className="text-xs text-gray-500">
                 {t.type === 'arr'
                   ? `${t.airport} → ${t.hotel_name}`
-                  : `${t.hotel_name} → ${t.airport}`
+                  : t.type === 'hh'
+                    ? `${t.hotel_name} → ${t.hotel_to}`
+                    : `${t.hotel_name} → ${t.airport}`
                 }
               </div>
               {t.note && (
