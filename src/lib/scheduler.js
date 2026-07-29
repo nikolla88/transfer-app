@@ -38,11 +38,13 @@ export function computeFleetState(assignedTransfers, vehicles, hotelZoneMap) {
     let location = 'TIV'
 
     for (const t of jobs) {
-      const zone      = t.zone_name || hotelZoneMap?.[t.hotel_name?.toUpperCase()] || null
+      // hh (hotel↔hotel, bez aerodroma) — vidi runSchedule() ispod za objašnjenje
+      const zone      = t.zone_name || hotelZoneMap?.[(t.type === 'hh' ? t.hotel_to : t.hotel_name)?.toUpperCase()] || null
+      const zoneFrom  = t.type === 'hh' ? (hotelZoneMap?.[t.hotel_name?.toUpperCase()] || null) : null
       const pickupLoc = t.type === 'arr' ? t.airport    : t.hotel_name
-      const dropLoc   = t.type === 'arr' ? t.hotel_name : t.airport
+      const dropLoc   = t.type === 'arr' ? t.hotel_name : (t.type === 'hh' ? t.hotel_to : t.airport)
       const pickup    = timeToMin(t.pickup_time)
-      const drive     = getDriveMinutes(pickupLoc, dropLoc, null, zone)
+      const drive     = getDriveMinutes(pickupLoc, dropLoc, zoneFrom, zone)
       // Za dolazak: pickup_time = slijetanje, putnici gotovi tek za ARRIVAL_BUFFER_MIN
       // arr: landing + izlaz putnika + vožnja do hotela + iskrcaj
       // dep: pickup_time + vožnja do aerodroma + buffer
@@ -99,12 +101,16 @@ export function runSchedule(transfers, vehicles, suppliers, prices, hotelZoneMap
     const pickup = timeToMin(t.pickup_time)
     if (pickup < 0) return { ...t, assignedVehicle: null, assignedSupplier: null }
 
-    const zone = t.zone_name || hotelZoneMap?.[t.hotel_name?.toUpperCase()] || null
+    // hh = hotel↔hotel transfer (gost se seli direktno iz jednog hotela u drugi,
+    // bez aerodroma — vidi loadFromRoomingList u DailySchedule.jsx). Za hh imamo
+    // DVIJE zone (polazna i dolazna), za arr/dep samo jednu (nepromijenjeno).
+    const zone = t.zone_name || hotelZoneMap?.[(t.type === 'hh' ? t.hotel_to : t.hotel_name)?.toUpperCase()] || null
+    const zoneFrom  = t.type === 'hh' ? (hotelZoneMap?.[t.hotel_name?.toUpperCase()] || null) : null
     const pickupLoc = t.type === 'arr' ? t.airport    : t.hotel_name
-    const dropLoc   = t.type === 'arr' ? t.hotel_name : t.airport
+    const dropLoc   = t.type === 'arr' ? t.hotel_name : (t.type === 'hh' ? t.hotel_to : t.airport)
 
     // Procijenjeno završno vrijeme transfera (pickup → drop)
-    const driveToDrop    = getDriveMinutes(pickupLoc, dropLoc, null, zone)
+    const driveToDrop    = getDriveMinutes(pickupLoc, dropLoc, zoneFrom, zone)
     const passengerReady = t.type === 'arr' ? ARRIVAL_PASSENGER_READY : 0
     const finishMin      = pickup + passengerReady + driveToDrop + TRANSFER_BUFFER
 
@@ -154,7 +160,7 @@ export function runSchedule(transfers, vehicles, suppliers, prices, hotelZoneMap
       const canMakeIt = v.freeAt === 0 || arrivalAtPickup <= deadline
 
       if (canMakeIt) {
-        const driveToDrop    = getDriveMinutes(pickupLoc, dropLoc, null, zone)
+        const driveToDrop    = getDriveMinutes(pickupLoc, dropLoc, zoneFrom, zone)
         const passengerReady = t.type === 'arr' ? ARRIVAL_PASSENGER_READY : 0
         const finishAt       = pickup + passengerReady + driveToDrop + TRANSFER_BUFFER
 
@@ -237,7 +243,7 @@ function postProcessSwap(result, initialFleetState, suppliers, prices) {
         if (timeToMin(job.pickup_time) >= extDeadline) break
         const jZone      = job.zone_name
         const jPickupLoc = job.type === 'arr' ? job.airport    : job.hotel_name
-        const jDropLoc   = job.type === 'arr' ? job.hotel_name : job.airport
+        const jDropLoc   = job.type === 'arr' ? job.hotel_name : (job.type === 'hh' ? job.hotel_to : job.airport)
         const jPickup    = timeToMin(job.pickup_time)
         const jDrive     = getDriveMinutes(jPickupLoc, jDropLoc, null, jZone)
         const jReady     = job.type === 'arr' ? ARRIVAL_PASSENGER_READY : 0
@@ -264,7 +270,7 @@ function postProcessSwap(result, initialFleetState, suppliers, prices) {
       for (const job of jobsAfter) {
         const jZone      = job.zone_name
         const jPickupLoc = job.type === 'arr' ? job.airport    : job.hotel_name
-        const jDropLoc   = job.type === 'arr' ? job.hotel_name : job.airport
+        const jDropLoc   = job.type === 'arr' ? job.hotel_name : (job.type === 'hh' ? job.hotel_to : job.airport)
         const jPickup    = timeToMin(job.pickup_time)
         const jDeadline  = job.type === 'arr'
           ? jPickup + ARRIVAL_VEHICLE_GRACE
@@ -346,7 +352,7 @@ function scheduleStillWorks(jobs, initState) {
   for (const job of [...jobs].sort((a, b) => timeToMin(a.pickup_time) - timeToMin(b.pickup_time))) {
     const jPickup    = timeToMin(job.pickup_time)
     const jPickupLoc = job.type === 'arr' ? job.airport    : job.hotel_name
-    const jDropLoc   = job.type === 'arr' ? job.hotel_name : job.airport
+    const jDropLoc   = job.type === 'arr' ? job.hotel_name : (job.type === 'hh' ? job.hotel_to : job.airport)
     const jDrive     = getDriveMinutes(jPickupLoc, jDropLoc, null, job.zone_name)
     const jReady     = job.type === 'arr' ? ARRIVAL_PASSENGER_READY : 0
     const jDeadline  = job.type === 'arr'
@@ -390,7 +396,7 @@ function postProcessChainAbsorption(result, initialFleetState, vehicleBlocks) {
     for (const T of externals) {
       const tPickup    = timeToMin(T.pickup_time)
       const tPickupLoc = T.type === 'arr' ? T.airport    : T.hotel_name
-      const tDropLoc   = T.type === 'arr' ? T.hotel_name : T.airport
+      const tDropLoc   = T.type === 'arr' ? T.hotel_name : (T.type === 'hh' ? T.hotel_to : T.airport)
       const tDrive     = getDriveMinutes(tPickupLoc, tDropLoc, null, T.zone_name)
       const tReady     = T.type === 'arr' ? ARRIVAL_PASSENGER_READY : 0
       const tFinish    = tPickup + tReady + tDrive + TRANSFER_BUFFER
@@ -454,7 +460,7 @@ function postProcessReassignToUnlock(result, initialFleetState, vehicleBlocks) {
 
       const tPickup    = timeToMin(T.pickup_time)
       const tPickupLoc = T.type === 'arr' ? T.airport    : T.hotel_name
-      const tDropLoc   = T.type === 'arr' ? T.hotel_name : T.airport
+      const tDropLoc   = T.type === 'arr' ? T.hotel_name : (T.type === 'hh' ? T.hotel_to : T.airport)
       const tDrive     = getDriveMinutes(tPickupLoc, tDropLoc, null, T.zone_name)
       const tReady     = T.type === 'arr' ? ARRIVAL_PASSENGER_READY : 0
       const tFinish    = tPickup + tReady + tDrive + TRANSFER_BUFFER
@@ -476,7 +482,7 @@ function postProcessReassignToUnlock(result, initialFleetState, vehicleBlocks) {
 
           const ePickup    = timeToMin(ext.pickup_time)
           const ePickupLoc = ext.type === 'arr' ? ext.airport    : ext.hotel_name
-          const eDropLoc   = ext.type === 'arr' ? ext.hotel_name : ext.airport
+          const eDropLoc   = ext.type === 'arr' ? ext.hotel_name : (ext.type === 'hh' ? ext.hotel_to : ext.airport)
           const eDrive     = getDriveMinutes(ePickupLoc, eDropLoc, null, ext.zone_name)
           const eReady     = ext.type === 'arr' ? ARRIVAL_PASSENGER_READY : 0
           const eFinish    = ePickup + eReady + eDrive + TRANSFER_BUFFER

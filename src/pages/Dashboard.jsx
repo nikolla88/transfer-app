@@ -164,9 +164,11 @@ export default function Dashboard() {
         const lines = sortedJobs.map(t => {
           const route = t.type === 'arr'
             ? `${t.airport} → ${escapeMd(t.hotel_name)}`
-            : `${escapeMd(t.hotel_name)} → ${t.airport}`
+            : t.type === 'hh'
+              ? `${escapeMd(t.hotel_name)} → ${escapeMd(t.hotel_to)}`
+              : `${escapeMd(t.hotel_name)} → ${t.airport}`
 
-          let flightLine = escapeMd(t.flight_number) || '—'
+          let flightLine = t.type === 'hh' ? 'transfer hotel-hotel' : (escapeMd(t.flight_number) || '—')
           if (t.type === 'arr' && t.flight_number) {
             const fs = flightStatuses[t.flight_number]
             if (fs) {
@@ -185,7 +187,8 @@ export default function Dashboard() {
           // boldLines() umjesto *${t.tourist}* — kod spojenih rezervacija tourist
           // može imati više imena razdvojenih novim redom, a Telegram zna odbiti
           // cijelu poruku ako jedan "*...*" blok pređe u novi red.
-          return `${t.pickup_time?.slice(0,5) || '--:--'} ${t.type === 'arr' ? '🛬' : '🛫'} ${boldLines(t.tourist)}\n  ${route}\n  ${t.pax} put · ${flightLine}`
+          const icon = t.type === 'arr' ? '🛬' : t.type === 'hh' ? '🔄' : '🛫'
+          return `${t.pickup_time?.slice(0,5) || '--:--'} ${icon} ${boldLines(t.tourist)}\n  ${route}\n  ${t.pax} put · ${flightLine}`
         }).join('\n\n')
 
         const emoji = vehEmoji[vehicleFull.type] || '🚗'

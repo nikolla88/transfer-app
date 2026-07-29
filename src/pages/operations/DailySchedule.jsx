@@ -200,7 +200,69 @@ export default function DailySchedule() {
       let idCtr = 0
       const built = []
 
+      // 4b. HOTEL-HOTEL transferi (samo IND) — gost se seli direktno iz jednog hotela
+      // u drugi, bez aerodroma. Prepoznaje se ISKLJUČIVO kad za isti claim_inc, na isti
+      // datum, postoji i red gdje je arr_flight_name = "HOTEL-HOTEL" (dolazak u novi
+      // hotel) I red gdje je dep_flight_name = "HOTEL-HOTEL" (odlazak iz starog hotela).
+      // Ako postoji samo jedna strana (npr. prvi uvoz, prije nego što je i drugi hotel
+      // ušao u sistem), ništa se ne mijenja — taj red i dalje ide kao običan arr/dep
+      // transfer, tačno kao i do sad.
+      const isHH = v => (v || '').trim().toUpperCase() === 'HOTEL-HOTEL'
+      const groupByClaim = (list) => {
+        const map = {}
+        for (const r of list) {
+          if (!map[r.claim_inc]) map[r.claim_inc] = []
+          map[r.claim_inc].push(r)
+        }
+        return map
+      }
+      const hhArrByClaim = groupByClaim((indArrRows || []).filter(r => isHH(r.arr_flight_name)))
+      const hhDepByClaim = groupByClaim((indDepRows || []).filter(r => isHH(r.dep_flight_name)))
+      const hhClaims = Object.keys(hhDepByClaim).filter(c => hhArrByClaim[c])
+
+      // id-jevi redova koji su iskorišteni u HOTEL-HOTEL spajanju — preskačemo ih
+      // dolje u običnim arr/dep petljama da se ne dupliraju.
+      const usedHHArrIds = new Set()
+      const usedHHDepIds = new Set()
+
+      for (const claim of hhClaims) {
+        const depSide = hhDepByClaim[claim]
+        const arrSide = hhArrByClaim[claim]
+        depSide.forEach(r => usedHHDepIds.add(r.id))
+        arrSide.forEach(r => usedHHArrIds.add(r.id))
+
+        const hotelTo    = arrSide[0].hotel_name
+        const hotelToObj = getHotel(hotelTo)
+        const vehType    = arrSide.find(r => r.arr_vehicle_type)?.arr_vehicle_type
+          || depSide.find(r => r.dep_vehicle_type)?.dep_vehicle_type
+
+        for (const r of depSide) {
+          built.push({
+            _id:              idCtr++,
+            type:             'hh',
+            reservation_id:   String(r.claim_inc),
+            tourist:          r.tourist_name,
+            all_passengers:   r.all_passengers || null,
+            hotel_name:       r.hotel_name,   // odakle (pickup)
+            hotel_to:         hotelTo,        // gdje (drop)
+            zone_name:        hotelToObj?.zones?.name || null,
+            flight_number:    'HOTEL-HOTEL',
+            flight_time:      null,
+            airport:          null,
+            pickup_time:      r.dep_pick_time?.slice(0, 5) || '12:00',
+            pax:              (r.adult || 0) + (r.child || 0) + (r.infant || 0),
+            adl:              r.adult  || 0,
+            chd:              r.child  || 0,
+            inf:              r.infant || 0,
+            vehicle_needed:   vehMap[vehType] || 'car',
+            note:             r.claim_note || null,
+            transfer_type_raw: 'IND',
+          })
+        }
+      }
+
       for (const r of (arrRows || [])) {
+        if (usedHHArrIds.has(r.id)) continue
         const sched = findSched(r.arr_flight_name, 'ARR')
         const hotel = getHotel(r.hotel_name)
         // Za dolaske NE računamo pickup_time — vozač ide na aerodrom u vrijeme slijetanja
@@ -227,6 +289,7 @@ export default function DailySchedule() {
       }
 
       for (const r of (depRows || [])) {
+        if (usedHHDepIds.has(r.id)) continue
         const sched = findSched(r.dep_flight_name, 'DEP')
         const hotel = getHotel(r.hotel_name)
         // pickup_time = flight_time - time_to_tiv/tgd
@@ -537,6 +600,7 @@ export default function DailySchedule() {
       tourist:          t.tourist,
       all_passengers:   t.all_passengers || null,
       hotel_name:       t.hotel_name,
+      hotel_to:         t.hotel_to || null,
       zone_name:        null,
       flight_number:    t.flight_number,
       flight_time:      t.flight_time,
@@ -748,9 +812,11 @@ export default function DailySchedule() {
         const lines = sortedJobs.map(t => {
           const route = t.type === 'arr'
             ? `${t.airport} → ${escapeMd(t.hotel_name)}`
-            : `${escapeMd(t.hotel_name)} → ${t.airport}`
+            : t.type === 'hh'
+              ? `${escapeMd(t.hotel_name)} → ${escapeMd(t.hotel_to)}`
+              : `${escapeMd(t.hotel_name)} → ${t.airport}`
 
-          let flightLine = escapeMd(t.flight_number) || '—'
+          let flightLine = t.type === 'hh' ? 'transfer hotel-hotel' : (escapeMd(t.flight_number) || '—')
           if (t.type === 'arr' && t.flight_number) {
             const fs = flightStatuses[t.flight_number]
             if (fs) {
@@ -769,7 +835,8 @@ export default function DailySchedule() {
           // boldLines() umjesto *${t.tourist}* — kod spojenih rezervacija tourist
           // može imati više imena razdvojenih novim redom, a Telegram zna odbiti
           // cijelu poruku ako jedan "*...*" blok pređe u novi red.
-          return `${t.pickup_time} ${t.type === 'arr' ? '🛬' : '🛫'} ${boldLines(t.tourist)}\n  ${route}\n  ${t.pax} put · ${flightLine}`
+          const icon = t.type === 'arr' ? '🛬' : t.type === 'hh' ? '🔄' : '🛫'
+          return `${t.pickup_time} ${icon} ${boldLines(t.tourist)}\n  ${route}\n  ${t.pax} put · ${flightLine}`
         }).join('\n\n')
 
         const emoji = vehEmoji[vehicleFull.type] || '🚗'
@@ -1150,6 +1217,7 @@ ${vehHTML || '<p style="color:#999">Nema raspoređenih vozila.</p>'}
         chd:                 t.chd,
         inf:                 t.inf || 0,
         hotel_name:          t.hotel_name,
+        hotel_to:            t.hotel_to || null,
         zone_id:             null,
         flight_number:       t.flight_number,
         flight_time:         t.flight_time || null,
@@ -1944,8 +2012,8 @@ function VehicleCard({ group, isExternal, allVehicles = [], suppliers = [], onRe
                     {t.pickup_time?.slice(0, 5) || <span className="text-gray-300">—</span>}
                   </div>
                 )}
-                <div className={`text-xs mt-0.5 ${t.type === 'arr' ? 'text-green-600' : 'text-blue-600'}`}>
-                  {t.type === 'arr' ? '🛬 arr' : '🛫 dep'}
+                <div className={`text-xs mt-0.5 ${t.type === 'arr' ? 'text-green-600' : t.type === 'hh' ? 'text-purple-600' : 'text-blue-600'}`}>
+                  {t.type === 'arr' ? '🛬 arr' : t.type === 'hh' ? '🔄 hh' : '🛫 dep'}
                 </div>
               </div>
 
@@ -1968,7 +2036,7 @@ function VehicleCard({ group, isExternal, allVehicles = [], suppliers = [], onRe
                             </span>
                           )}
                           {(part.flight_number || part.flight_time) && <span className="text-gray-300">·</span>}
-                          <span>{part.type === 'arr' ? `${part.airport} → ${part.hotel_name}` : `${part.hotel_name} → ${part.airport}`}</span>
+                          <span>{part.type === 'arr' ? `${part.airport} → ${part.hotel_name}` : part.type === 'hh' ? `${part.hotel_name} → ${part.hotel_to}` : `${part.hotel_name} → ${part.airport}`}</span>
                           {part.zone_name && <span className="px-1 py-0.5 rounded bg-gray-100">{part.zone_name}</span>}
                           <span className="text-gray-400">{part.pax} pax</span>
                         </div>
@@ -1993,7 +2061,7 @@ function VehicleCard({ group, isExternal, allVehicles = [], suppliers = [], onRe
                       {(t.flight_number || t.flight_time) && <span className="text-gray-300">·</span>}
                       {/* Ruta */}
                       <span>
-                        {t.type === 'arr' ? `${t.airport} → ${t.hotel_name}` : `${t.hotel_name} → ${t.airport}`}
+                        {t.type === 'arr' ? `${t.airport} → ${t.hotel_name}` : t.type === 'hh' ? `${t.hotel_name} → ${t.hotel_to}` : `${t.hotel_name} → ${t.airport}`}
                       </span>
                       {t.zone_name && <span className="px-1.5 py-0.5 rounded bg-gray-100">{t.zone_name}</span>}
                     </div>
