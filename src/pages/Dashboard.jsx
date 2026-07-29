@@ -3,6 +3,7 @@ import { useAuth } from '../App'
 import { supabase } from '../lib/supabase'
 import { getFlightStatusesByAirport, normalizeFlight } from '../lib/flightStatus'
 import { generateContractPDF, contractFileName } from '../lib/generateContract'
+import { escapeMd, boldLines } from '../lib/telegramText'
 import { setDriveTimesMap, getDriveMinutes } from '../lib/driveTime'
 
 export default function Dashboard() {
@@ -145,13 +146,13 @@ export default function Dashboard() {
         byVehicle[vid].jobs.push(t)
       }
 
-      let sent = 0, skipped = 0
+      let sent = 0, skippedNoId = 0, skippedSendFail = 0
       const dateFormatted = date.split('-').reverse().join('.')
       const vehEmoji = { car: '🚗', minivan: '🚐', vclass: '⭐' }
 
       for (const [vid, group] of Object.entries(byVehicle)) {
         const driver = drivers.find(d => d.vehicle_id === vid)
-        if (!driver?.telegram_chat_id) { skipped++; continue }
+        if (!driver?.telegram_chat_id) { skippedNoId++; continue }
 
         const chatId      = driver.telegram_chat_id
         const vehicleFull = vehicles.find(v => v.id === vid) || group.vehicle
@@ -162,10 +163,10 @@ export default function Dashboard() {
         // Poruka s rasporedom
         const lines = sortedJobs.map(t => {
           const route = t.type === 'arr'
-            ? `${t.airport} → ${t.hotel_name}`
-            : `${t.hotel_name} → ${t.airport}`
+            ? `${t.airport} → ${escapeMd(t.hotel_name)}`
+            : `${escapeMd(t.hotel_name)} → ${t.airport}`
 
-          let flightLine = t.flight_number || '—'
+          let flightLine = escapeMd(t.flight_number) || '—'
           if (t.type === 'arr' && t.flight_number) {
             const fs = flightStatuses[t.flight_number]
             if (fs) {
@@ -181,15 +182,27 @@ export default function Dashboard() {
             }
           }
 
-          return `${t.pickup_time?.slice(0,5) || '--:--'} ${t.type === 'arr' ? '🛬' : '🛫'} *${t.tourist}*\n  ${route}\n  ${t.pax} put · ${flightLine}`
+          // boldLines() umjesto *${t.tourist}* — kod spojenih rezervacija tourist
+          // može imati više imena razdvojenih novim redom, a Telegram zna odbiti
+          // cijelu poruku ako jedan "*...*" blok pređe u novi red.
+          return `${t.pickup_time?.slice(0,5) || '--:--'} ${t.type === 'arr' ? '🛬' : '🛫'} ${boldLines(t.tourist)}\n  ${route}\n  ${t.pax} put · ${flightLine}`
         }).join('\n\n')
 
         const emoji = vehEmoji[vehicleFull.type] || '🚗'
-        const text  = `${emoji} *Raspored za ${dateFormatted}* — ${vehicleFull.name}\n\n${lines}\n\n_Ugovori u prilogu._`
+        const text  = `${emoji} *Raspored za ${dateFormatted}* — ${escapeMd(vehicleFull.name)}\n\n${lines}\n\n_Ugovori u prilogu._`
 
         setTgStatus(`⏳ Šaljem raspored za ${vehicleFull.name}...`)
-        const msgResp = await tg('sendMessage', { chat_id: chatId, text, parse_mode: 'Markdown' })
-        if (!msgResp.ok) { skipped++; continue }
+        let msgResp = await tg('sendMessage', { chat_id: chatId, text, parse_mode: 'Markdown' })
+        if (!msgResp.ok) {
+          // Fallback: pošalji kao običan tekst (bez formatiranja) da vozač ipak dobije raspored
+          console.warn('sendMessage (Markdown) greška, šaljem bez formatiranja:', msgResp)
+          msgResp = await tg('sendMessage', { chat_id: chatId, text: text.replace(/[*_`[\]\\]/g, '') })
+        }
+        if (!msgResp.ok) {
+          console.error('sendMessage greška:', msgResp)
+          skippedSendFail++
+          continue
+        }
 
         // PDF ugovor za svaki transfer
         for (const t of sortedJobs) {
@@ -213,9 +226,13 @@ export default function Dashboard() {
         sent++
       }
 
-      setTgStatus(sent === 0 && skipped > 0
-        ? '⚠ Nijedan vozač nema unesen Telegram ID.'
-        : `✅ Poslato: ${sent} vozač(a) · Preskočeno: ${skipped}`)
+      if (sent === 0 && skippedNoId > 0 && skippedSendFail === 0) {
+        setTgStatus('⚠ Nijedan vozač nema unesen Telegram ID.')
+      } else if (skippedSendFail > 0) {
+        setTgStatus(`⚠ Poslato: ${sent} · Bez Telegram ID: ${skippedNoId} · Greška slanja: ${skippedSendFail} (provjeri konzolu)`)
+      } else {
+        setTgStatus(`✅ Poslato: ${sent} vozač(a) · Preskočeno: ${skippedNoId}`)
+      }
     } catch (err) {
       setTgStatus(`❌ Greška: ${err.message}`)
     }
