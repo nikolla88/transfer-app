@@ -839,7 +839,10 @@ export default function DailySchedule() {
           // boldLines() umjesto *${t.tourist}* — kod spojenih rezervacija tourist
           // može imati više imena razdvojenih novim redom, a Telegram zna odbiti
           // cijelu poruku ako jedan "*...*" blok pređe u novi red.
-          const icon = t.type === 'arr' ? '🛬' : t.type === 'hh' ? '🔄' : '🛫'
+          // Telegram ne podržava boju teksta, pa koristimo obojene emoji oznake
+          // (🟢 zeleno = dolazak, 🔴 crveno = odlazak) da vozač ne pomiješa
+          // "čekam gosta na aerodromu" sa "gost čeka mene u hotelu".
+          const icon = t.type === 'arr' ? '🟢 ARR 🛬' : t.type === 'hh' ? '🟣 HH 🔄' : '🔴 DEP 🛫'
           return `${t.pickup_time} ${icon} ${boldLines(t.tourist)}\n  ${route}\n  ${t.pax} put · ${flightLine}`
         }).join('\n\n')
 
