@@ -420,9 +420,13 @@ export default function DailySchedule() {
           _isCombined:    true,
           _combinedParts: parts,
           tourist:        parts.map(p => p.tourist).join('\n'),
-          all_passengers: parts
-            .flatMap(p => (p.all_passengers || p.tourist || '').split(';').map(n => n.trim()).filter(Boolean))
-            .join('; ') || null,
+          // [...new Set(...)] — bitno kod iste rezervacije razdvojene u više soba:
+          // sve njihove all_passengers vrijednosti su već ista, puna lista imena za
+          // taj claim (SQL upit za imena radi po cijeloj rezervaciji, ne po sobi),
+          // pa bez dedup-a svako ime ispadne duplirano onoliko puta koliko ima soba.
+          all_passengers: [...new Set(
+            parts.flatMap(p => (p.all_passengers || p.tourist || '').split(';').map(n => n.trim()).filter(Boolean))
+          )].join('; ') || null,
           pax:  parts.reduce((s, p) => s + (p.pax  || 0), 0),
           adl:  parts.reduce((s, p) => s + (p.adl  || 0), 0),
           chd:  parts.reduce((s, p) => s + (p.chd  || 0), 0),
@@ -684,9 +688,9 @@ export default function DailySchedule() {
       reservation_id: mergedId,
       pickup_time:    primaryPickup,
       pax:            totalPax,
-      all_passengers: parts
-        .flatMap(p => (p.all_passengers || p.tourist || '').split(';').map(n => n.trim()).filter(Boolean))
-        .join('; ') || null,
+      all_passengers: [...new Set(
+        parts.flatMap(p => (p.all_passengers || p.tourist || '').split(';').map(n => n.trim()).filter(Boolean))
+      )].join('; ') || null,
       assignedVehicle: vehicle,
       assignedSupplier: null,
       _isMerged:      true,
@@ -1210,7 +1214,7 @@ ${vehHTML || '<p style="color:#999">Nema raspoređenih vozila.</p>'}
           ? t._mergedParts.map(p => p.tourist).join(' + ')
           : t.tourist,
         all_passengers:      t._isMerged
-          ? t._mergedParts.flatMap(p => (p.all_passengers || p.tourist || '').split(';').map(n => n.trim()).filter(Boolean)).join('; ') || null
+          ? [...new Set(t._mergedParts.flatMap(p => (p.all_passengers || p.tourist || '').split(';').map(n => n.trim()).filter(Boolean)))].join('; ') || null
           : (t.all_passengers || null),
         pax:                 t.pax,
         adl:                 t.adl,
