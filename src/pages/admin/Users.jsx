@@ -171,13 +171,24 @@ export default function Users() {
     if (!editUser) return
     setSaving(true)
 
-    const { error } = await supabase
+    // Koristi service-role klijent ako postoji (zaobilazi RLS, kao i
+    // createUser/deleteUser) - inače pada nazad na obični klijent.
+    const client = supabaseAdmin || supabase
+
+    const { data, error } = await client
       .from('profiles')
       .update({ role: editRole, permissions: editPerms, full_name: editUser.full_name })
       .eq('id', editUser.id)
+      .select()
 
-    if (error) { flash(error.message, true) }
-    else {
+    if (error) {
+      flash(error.message, true)
+    } else if (!data || data.length === 0) {
+      // Update "uspio" bez greške, ali nijedan red nije izmijenjen — obično
+      // znači da RLS pravilo tiho odbija izmjenu. Pokreni
+      // supabase_fix_profiles_rls.sql u Supabase SQL editoru.
+      flash('Snimanje nije uspjelo (baza nije dozvolila izmjenu ovog profila). Provjeri RLS podešavanja.', true)
+    } else {
       flash('Permisije sačuvane.')
       setEditUser(null)
       loadUsers()
