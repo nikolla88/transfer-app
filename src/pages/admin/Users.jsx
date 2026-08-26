@@ -18,7 +18,7 @@ const PAGE_GROUPS = [
       { key: 'transfers_arrival',   label: 'Lista dolazaka',    icon: '🛬' },
       { key: 'rooming',             label: 'Rooming List',      icon: '🛏️' },
       { key: 'flights',             label: 'Rasporedi letova',  icon: '✈️' },
-      { key: 'rep_arrivals',        label: 'Brojevi telefona',  icon: '📱' },
+      { key: 'rep_arrivals',        label: 'Moj raspored',      icon: '📱' },
     ],
   },
   {
@@ -373,7 +373,7 @@ export default function Users() {
               )}
               {newRole === 'rep' && (
                 <div className="p-4 bg-green-50 border border-green-200 rounded-lg text-sm text-green-800">
-                  📱 Predstavnik automatski dobija pristup samo stranici <strong>Lista dolazaka</strong>. Individualne permisije se ne primjenjuju.
+                  📱 Predstavnik automatski dobija pristup samo stranici <strong>Moj raspored</strong> — vidi samo goste sa leta koji mu je dodijeljen na stranici "Grupni transferi". Individualne permisije se ne primjenjuju.
                 </div>
               )}
 
@@ -437,7 +437,7 @@ export default function Users() {
               )}
               {editRole === 'rep' && (
                 <div className="p-4 bg-green-50 border border-green-200 rounded-lg text-sm text-green-800">
-                  📱 Predstavnik automatski dobija pristup samo stranici <strong>Lista dolazaka</strong>. Individualne permisije se ne primjenjuju.
+                  📱 Predstavnik automatski dobija pristup samo stranici <strong>Moj raspored</strong> — vidi samo goste sa leta koji mu je dodijeljen na stranici "Grupni transferi". Individualne permisije se ne primjenjuju.
                 </div>
               )}
 

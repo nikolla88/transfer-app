@@ -406,8 +406,24 @@ function HotelTable({ hotels, showPickup }) {
   )
 }
 
+// ── Izbor predstavnika (dropdown) ─────────────────────────────────────
+function RepSelect({ reps, repId, onChange }) {
+  return (
+    <select
+      value={repId || ''}
+      onChange={e => onChange(e.target.value)}
+      className="text-xs rounded-lg px-2 py-1.5 bg-white/15 text-white border border-white/30 outline-none focus:border-white/60 max-w-[10rem]"
+    >
+      <option value="" className="text-gray-900">👤 — predstavnik —</option>
+      {reps.map(r => (
+        <option key={r.id} value={r.id} className="text-gray-900">{r.full_name || r.email}</option>
+      ))}
+    </select>
+  )
+}
+
 // ── RT karton (dolazak + odlazak zajedno) ────────────────────────────
-function RTCard({ nalog }) {
+function RTCard({ nalog, reps, repId, onSetRep }) {
   return (
     <div className="border border-emerald-300 rounded-xl overflow-hidden bg-emerald-50">
       {/* Header */}
@@ -424,6 +440,7 @@ function RTCard({ nalog }) {
           {nalog.dep.flightTime && <span className="ml-1 text-emerald-200">{fmtTime(nalog.dep.flightTime)}</span>}
         </span>
         <span className="text-emerald-200 text-xs">{nalog.airport}</span>
+        <RepSelect reps={reps} repId={repId} onChange={val => onSetRep(nalog.id, val)} />
         <span className="ml-auto flex items-center gap-3">
           <span className="text-sm font-medium text-emerald-100">{nalog.busLabel}</span>
           <span className="px-2.5 py-1 rounded-lg bg-yellow-400 text-yellow-900 text-sm font-bold">
@@ -462,7 +479,7 @@ function RTCard({ nalog }) {
 }
 
 // ── OW karton (jedan smjer) ──────────────────────────────────────────
-function OWCard({ nalog }) {
+function OWCard({ nalog, reps, repId, onSetRep }) {
   const isArr = nalog.type === 'arr'
   return (
     <div className="border border-sky-200 rounded-xl overflow-hidden bg-sky-50">
@@ -477,6 +494,7 @@ function OWCard({ nalog }) {
           {nalog.flightTime && <span className="ml-1 text-sky-200">{fmtTime(nalog.flightTime)}</span>}
         </span>
         <span className="text-sky-200 text-xs">{nalog.airport}</span>
+        <RepSelect reps={reps} repId={repId} onChange={val => onSetRep(nalog.id, val)} />
         <span className="ml-auto flex items-center gap-3">
           <span className="text-sm font-medium text-sky-100">{nalog.busLabel}</span>
           <span className="text-xs text-sky-200">{nalog.pax} pax</span>
@@ -832,27 +850,39 @@ export default function GroupSchedule() {
   const [confirmed,   setConfirmed]   = useState(false)  // da li je ovaj datum već potvrđen
   const [confirming,  setConfirming]  = useState(false)
   const [toast,       setToast]       = useState(null)   // { msg, ok }
+  const [reps,            setReps]            = useState([])
+  const [repAssignments,  setRepAssignments]  = useState({}) // nalog.id → rep profile id
 
   useEffect(() => {
     supabase.from('suppliers').select('id,name').eq('active', true).order('name')
       .then(({ data }) => setSuppliers(data || []))
+    supabase.from('profiles').select('id,full_name,email').eq('role', 'rep').order('full_name')
+      .then(({ data }) => setReps(data || []))
   }, [])
 
-  // Provjeri da li postoje potvrđeni nalozi za ovaj datum
+  // Provjeri da li postoje potvrđeni nalozi za ovaj datum (+ učitaj dodijeljene predstavnike)
   useEffect(() => {
-    supabase.from('group_transfer_orders').select('id,supplier_id', { count: 'exact' })
-      .eq('date', date).limit(1)
-      .then(({ data, count }) => {
-        if (count && count > 0) {
+    supabase.from('group_transfer_orders').select('nalog_id,supplier_id,assigned_rep_id')
+      .eq('date', date)
+      .then(({ data }) => {
+        if (data && data.length > 0) {
           setConfirmed(true)
-          if (data?.[0]?.supplier_id && !busSupplier) {
+          if (data[0]?.supplier_id && !busSupplier) {
             setBusSupplier(data[0].supplier_id)
           }
+          const map = {}
+          for (const row of data) if (row.assigned_rep_id) map[row.nalog_id] = row.assigned_rep_id
+          setRepAssignments(map)
         } else {
           setConfirmed(false)
+          setRepAssignments({})
         }
       })
   }, [date])
+
+  function setRepFor(nalogId, repId) {
+    setRepAssignments(prev => ({ ...prev, [nalogId]: repId }))
+  }
 
   function showToast(msg, ok = true) {
     setToast({ msg, ok })
@@ -929,6 +959,7 @@ export default function GroupSchedule() {
       bucket:          n.bucket,
       price:           n.price,
       supplier_id:     busSupplier,
+      assigned_rep_id: repAssignments[n.id] || null,
       // RT polja
       arr_flight:      n.type === 'RT' ? n.arr.flightName      : null,
       arr_flight_time: n.type === 'RT' ? (n.arr.flightTime || null) : null,
@@ -1084,7 +1115,9 @@ export default function GroupSchedule() {
             <span className="ml-2 text-sm font-normal text-gray-500">({rtNalozi.length} {rtNalozi.length === 1 ? 'par' : 'para'})</span>
           </h2>
           <div className="space-y-4">
-            {rtNalozi.map(n => <RTCard key={n.id} nalog={n} />)}
+            {rtNalozi.map(n => (
+              <RTCard key={n.id} nalog={n} reps={reps} repId={repAssignments[n.id]} onSetRep={setRepFor} />
+            ))}
           </div>
         </div>
       )}
@@ -1097,7 +1130,9 @@ export default function GroupSchedule() {
             <span className="ml-2 text-sm font-normal text-gray-500">({owArrNalozi.length})</span>
           </h2>
           <div className="space-y-3">
-            {owArrNalozi.map(n => <OWCard key={n.id} nalog={n} />)}
+            {owArrNalozi.map(n => (
+              <OWCard key={n.id} nalog={n} reps={reps} repId={repAssignments[n.id]} onSetRep={setRepFor} />
+            ))}
           </div>
         </div>
       )}
@@ -1110,7 +1145,9 @@ export default function GroupSchedule() {
             <span className="ml-2 text-sm font-normal text-gray-500">({owDepNalozi.length})</span>
           </h2>
           <div className="space-y-3">
-            {owDepNalozi.map(n => <OWCard key={n.id} nalog={n} />)}
+            {owDepNalozi.map(n => (
+              <OWCard key={n.id} nalog={n} reps={reps} repId={repAssignments[n.id]} onSetRep={setRepFor} />
+            ))}
           </div>
         </div>
       )}

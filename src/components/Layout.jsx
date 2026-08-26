@@ -27,7 +27,7 @@ const NAV_ITEMS = [
   { to: '/transfers/departure', icon: '🛫', label: 'Lista odlazaka',  permKey: 'transfers_departure'},
   { to: '/transfers/arrival',   icon: '🛬', label: 'Lista dolazaka',  permKey: 'transfers_arrival'  },
   { to: '/schedule/group',      icon: '🚌', label: 'Grupni transferi',permKey: 'schedule_group'     },
-  { to: '/rep',                 icon: '📱', label: 'Brojevi telefona',permKey: 'rep_arrivals'       },
+  { to: '/rep',                 icon: '📱', label: 'Moj raspored',    permKey: 'rep_arrivals'       },
   { divider: true },
   { to: '/sale-prices',         icon: '💰', label: 'Cjenovnik prodaje', permKey: 'sale_prices'       },
   { to: '/reports',             icon: '📈', label: 'Izvještaji',         permKey: 'reports'           },

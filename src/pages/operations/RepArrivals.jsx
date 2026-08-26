@@ -1,5 +1,7 @@
 import { useEffect, useState, useRef, useMemo, useCallback } from 'react'
 import { supabase } from '../../lib/supabase'
+import { useAuth } from '../../App'
+import { normalize, fmtTime } from '../../lib/transferUtils'
 
 function todayStr() {
   return new Date().toISOString().slice(0, 10)
@@ -11,7 +13,7 @@ function fmtDate(s) {
 }
 
 // ── Kartica gosta ────────────────────────────────────────────────
-function GuestCard({ rec, onPhoneSave }) {
+function GuestCard({ rec, direction, onPhoneSave }) {
   const [phone, setPhone]   = useState(rec.phone || '')
   const [saving, setSaving] = useState(false)
   const [saved,  setSaved]  = useState(false)
@@ -30,20 +32,22 @@ function GuestCard({ rec, onPhoneSave }) {
     const current = rec.phone || null
     if (full === current) return                  // ništa novo
     setSaving(true)
+    const dateKey = direction === 'arr' ? 'date_beg' : 'date_end'
     const { error } = await supabase
       .from('rooming_list')
       .update({ phone: full })
       .eq('claim_inc', rec.claim_inc)
-      .eq('date_beg', rec.date_beg)
+      .eq(dateKey, rec[dateKey])
     setSaving(false)
     if (!error) {
       setSaved(true)
       setTimeout(() => setSaved(false), 2000)
-      onPhoneSave(rec.claim_inc, rec.date_beg, full)
+      onPhoneSave(rec.claim_inc, rec[dateKey], full)
     }
   }
 
   const hasPhone = !!(phone.trim())
+  const flightName = direction === 'arr' ? rec.arr_flight_name : rec.dep_flight_name
 
   return (
     <div className={`rounded-xl border-2 p-4 transition-colors ${
@@ -60,9 +64,16 @@ function GuestCard({ rec, onPhoneSave }) {
           </div>
         </div>
         <div className="flex flex-col items-end gap-1 flex-shrink-0">
-          {rec.arr_flight_name && (
-            <span className="text-xs font-mono font-bold text-sky-700 bg-sky-100 px-2 py-0.5 rounded">
-              ✈ {rec.arr_flight_name}
+          {flightName && (
+            <span className={`text-xs font-mono font-bold px-2 py-0.5 rounded ${
+              direction === 'arr' ? 'text-sky-700 bg-sky-100' : 'text-orange-700 bg-orange-100'
+            }`}>
+              ✈ {flightName}
+            </span>
+          )}
+          {direction === 'dep' && rec.dep_pick_time && (
+            <span className="text-xs font-mono font-bold text-orange-600">
+              🕐 {fmtTime(rec.dep_pick_time)}
             </span>
           )}
           <span className="text-xs text-gray-400">#{rec.claim_inc}</span>
@@ -110,84 +121,129 @@ function GuestCard({ rec, onPhoneSave }) {
 
 // ── Glavna stranica ──────────────────────────────────────────────
 export default function RepArrivals() {
-  const [date,    setDate]    = useState(todayStr())
-  const [guests,  setGuests]  = useState([])
-  const [loading, setLoading] = useState(false)
-  const [loadErr, setLoadErr] = useState(null)
-  const [query,   setQuery]   = useState('')
-  const [flight,  setFlight]  = useState('')
+  const { profile } = useAuth()
+  const [date,        setDate]        = useState(todayStr())
+  const [arrivals,    setArrivals]    = useState([])
+  const [departures,  setDepartures]  = useState([])
+  const [hasAssignment, setHasAssignment] = useState(true) // dok se ne učita, ne prikazuj prazno stanje
+  const [tab,          setTab]          = useState('arr') // 'arr' | 'dep'
+  const [loading,     setLoading]     = useState(false)
+  const [loadErr,     setLoadErr]     = useState(null)
+  const [query,       setQuery]       = useState('')
   const searchRef = useRef(null)
 
-  useEffect(() => { load() }, [date])
+  useEffect(() => { load() }, [date, profile?.id])
 
   async function load() {
+    if (!profile?.id) return
     setLoading(true)
     setLoadErr(null)
     setQuery('')
 
-    const { data, error } = await supabase
-      .from('rooming_list')
-      .select('claim_inc, date_beg, tourist_name, hotel_name, arr_flight_name, adult, child, phone')
-      .eq('date_beg', date)
-      .not('arr_flight_name', 'is', null)
-      .order('arr_flight_name')
-      .order('tourist_name')
+    // 1. Nađi nalog(e) dodijeljen(e) ovom predstavniku za izabrani datum
+    const { data: assigned, error: assignErr } = await supabase
+      .from('group_transfer_orders')
+      .select('type, arr_flight, dep_flight, flight_name')
+      .eq('date', date)
+      .eq('assigned_rep_id', profile.id)
 
-    if (error) {
-      // Najčešći uzrok: phone kolona ne postoji — treba pokrenuti SQL migraciju
-      setLoadErr(error.message?.includes('phone')
-        ? 'Kolona "phone" ne postoji u bazi. Pokreni supabase_phone.sql u Supabase SQL editoru:\n\nALTER TABLE rooming_list ADD COLUMN IF NOT EXISTS phone TEXT;'
-        : 'Greška: ' + error.message
+    if (assignErr) {
+      setLoadErr(assignErr.message?.includes('assigned_rep_id')
+        ? 'Kolona "assigned_rep_id" ne postoji u bazi. Pokreni supabase_rep_flight_assignment.sql u Supabase SQL editoru.'
+        : 'Greška: ' + assignErr.message
       )
-    } else {
-      setGuests(data || [])
+      setLoading(false)
+      return
     }
+
+    const arrFlights = new Set()
+    const depFlights = new Set()
+    for (const row of (assigned || [])) {
+      if (row.type === 'RT') {
+        if (row.arr_flight) arrFlights.add(normalize(row.arr_flight))
+        if (row.dep_flight) depFlights.add(normalize(row.dep_flight))
+      } else if (row.type === 'arr' && row.flight_name) {
+        arrFlights.add(normalize(row.flight_name))
+      } else if (row.type === 'dep' && row.flight_name) {
+        depFlights.add(normalize(row.flight_name))
+      }
+    }
+
+    if (arrFlights.size === 0 && depFlights.size === 0) {
+      setHasAssignment(false)
+      setArrivals([])
+      setDepartures([])
+      setLoading(false)
+      return
+    }
+    setHasAssignment(true)
+
+    // 2. Učitaj goste sa rooming liste za taj datum i filtriraj po dodijeljenom letu
+    const [{ data: arrData, error: arrErr }, { data: depData, error: depErr }] = await Promise.all([
+      arrFlights.size
+        ? supabase.from('rooming_list')
+            .select('claim_inc, date_beg, tourist_name, hotel_name, arr_flight_name, adult, child, phone')
+            .eq('date_beg', date)
+            .not('arr_flight_name', 'is', null)
+            .order('tourist_name')
+        : Promise.resolve({ data: [], error: null }),
+      depFlights.size
+        ? supabase.from('rooming_list')
+            .select('claim_inc, date_end, tourist_name, hotel_name, dep_flight_name, dep_pick_time, adult, child, phone')
+            .eq('date_end', date)
+            .not('dep_flight_name', 'is', null)
+            .order('dep_pick_time')
+        : Promise.resolve({ data: [], error: null }),
+    ])
+
+    const err = arrErr || depErr
+    if (err) {
+      setLoadErr(err.message?.includes('phone')
+        ? 'Kolona "phone" ne postoji u bazi. Pokreni supabase_phone.sql u Supabase SQL editoru:\n\nALTER TABLE rooming_list ADD COLUMN IF NOT EXISTS phone TEXT;'
+        : 'Greška: ' + err.message
+      )
+      setLoading(false)
+      return
+    }
+
+    const filteredArr = (arrData || []).filter(g => arrFlights.has(normalize(g.arr_flight_name)))
+    const filteredDep = (depData || []).filter(g => depFlights.has(normalize(g.dep_flight_name)))
+    setArrivals(filteredArr)
+    setDepartures(filteredDep)
+    // Ako predstavnik ima samo odlazni let (bez dolaznog), otvori odmah tab odlazaka
+    setTab(filteredArr.length === 0 && filteredDep.length > 0 ? 'dep' : 'arr')
     setLoading(false)
   }
 
   // Updejtuj phone lokalno bez re-fetcha
-  const handlePhoneSave = useCallback((claimInc, dateBeg, phone) => {
-    setGuests(prev => prev.map(g =>
-      g.claim_inc === claimInc && g.date_beg === dateBeg
-        ? { ...g, phone }
-        : g
+  const handlePhoneSave = useCallback((claimInc, dateKey, phone) => {
+    setArrivals(prev => prev.map(g =>
+      g.claim_inc === claimInc && g.date_beg === dateKey ? { ...g, phone } : g
+    ))
+    setDepartures(prev => prev.map(g =>
+      g.claim_inc === claimInc && g.date_end === dateKey ? { ...g, phone } : g
     ))
   }, [])
 
-  // Svi dostupni letovi za filter
-  const flights = useMemo(() => {
-    const set = new Set(guests.map(g => g.arr_flight_name).filter(Boolean))
-    return [...set].sort()
-  }, [guests])
+  const list = tab === 'arr' ? arrivals : departures
 
   // Klijentsko filtriranje — instant, bez API poziva
   const filtered = useMemo(() => {
     const q = query.toLowerCase().trim()
-    return guests.filter(g => {
-      if (flight && g.arr_flight_name !== flight) return false
-      if (!q) return true
+    if (!q) return list
+    return list.filter(g => {
+      const flightName = tab === 'arr' ? g.arr_flight_name : g.dep_flight_name
       return (
         (g.tourist_name || '').toLowerCase().includes(q) ||
         (g.hotel_name || '').toLowerCase().includes(q) ||
         String(g.claim_inc).includes(q) ||
-        (g.arr_flight_name || '').toLowerCase().includes(q)
+        (flightName || '').toLowerCase().includes(q)
       )
     })
-  }, [guests, query, flight])
+  }, [list, query, tab])
 
-  // Grupiši po letu za prikaz
-  const grouped = useMemo(() => {
-    const map = {}
-    for (const g of filtered) {
-      const key = g.arr_flight_name || '—'
-      if (!map[key]) map[key] = []
-      map[key].push(g)
-    }
-    return map
-  }, [filtered])
-
-  const withPhone    = guests.filter(g => g.phone).length
-  const withoutPhone = guests.length - withPhone
+  const withPhone    = list.filter(g => g.phone).length
+  const withoutPhone = list.length - withPhone
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -197,20 +253,42 @@ export default function RepArrivals() {
         {/* Naslov + datum */}
         <div className="flex items-center gap-3 px-4 pt-3 pb-2">
           <span className="text-lg">📋</span>
-          <span className="font-bold text-base flex-1">Lista dolazaka</span>
+          <span className="font-bold text-base flex-1">Moj raspored</span>
           <input
             type="date"
             value={date}
-            onChange={e => { setDate(e.target.value); setFlight('') }}
+            onChange={e => setDate(e.target.value)}
             onClick={e => e.target.showPicker?.()}
             className="bg-gray-800 text-white text-sm border border-gray-600 rounded-lg px-2 py-1.5 outline-none focus:border-gray-400"
           />
         </div>
 
+        {/* Tabovi: dolazak / odlazak */}
+        {!loading && hasAssignment && (arrivals.length > 0 || departures.length > 0) && (
+          <div className="flex gap-2 px-4 pb-2">
+            <button
+              onClick={() => setTab('arr')}
+              className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-colors ${
+                tab === 'arr' ? 'bg-green-500 text-white' : 'bg-gray-800 text-gray-400'
+              }`}
+            >
+              🛬 Dolazak {arrivals.length > 0 && `(${arrivals.length})`}
+            </button>
+            <button
+              onClick={() => setTab('dep')}
+              className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-colors ${
+                tab === 'dep' ? 'bg-orange-500 text-white' : 'bg-gray-800 text-gray-400'
+              }`}
+            >
+              🛫 Odlazak {departures.length > 0 && `(${departures.length})`}
+            </button>
+          </div>
+        )}
+
         {/* Statistika */}
-        {!loading && guests.length > 0 && (
+        {!loading && hasAssignment && list.length > 0 && (
           <div className="flex gap-3 px-4 pb-2 text-xs">
-            <span className="text-gray-300">{guests.length} rezervacija</span>
+            <span className="text-gray-300">{list.length} rezervacija</span>
             <span className="text-green-400 font-semibold">✓ {withPhone} sa brojem</span>
             {withoutPhone > 0 && (
               <span className="text-yellow-400">⚠ {withoutPhone} bez broja</span>
@@ -219,48 +297,25 @@ export default function RepArrivals() {
         )}
 
         {/* Search bar */}
-        <div className="px-4 pb-3">
-          <div className="relative">
-            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-lg">🔍</span>
-            <input
-              ref={searchRef}
-              type="search"
-              placeholder="Ime, hotel, broj rezervacije..."
-              value={query}
-              onChange={e => setQuery(e.target.value)}
-              className="w-full bg-gray-800 text-white placeholder-gray-500 rounded-xl pl-10 pr-4 py-3 text-base outline-none border border-gray-700 focus:border-gray-500"
-            />
-            {query && (
-              <button
-                onClick={() => setQuery('')}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-xl p-1"
-              >✕</button>
-            )}
-          </div>
-        </div>
-
-        {/* Filter po letu (ako ima više letova) */}
-        {flights.length > 1 && (
-          <div className="flex gap-2 px-4 pb-3 overflow-x-auto scrollbar-hide">
-            <button
-              onClick={() => setFlight('')}
-              className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold transition-colors ${
-                !flight ? 'bg-brand-500 text-white' : 'bg-gray-700 text-gray-300'
-              }`}
-            >
-              Svi letovi
-            </button>
-            {flights.map(f => (
-              <button
-                key={f}
-                onClick={() => setFlight(f === flight ? '' : f)}
-                className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold transition-colors ${
-                  flight === f ? 'bg-sky-500 text-white' : 'bg-gray-700 text-gray-300'
-                }`}
-              >
-                ✈ {f}
-              </button>
-            ))}
+        {!loading && hasAssignment && list.length > 0 && (
+          <div className="px-4 pb-3">
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-lg">🔍</span>
+              <input
+                ref={searchRef}
+                type="search"
+                placeholder="Ime, hotel, broj rezervacije..."
+                value={query}
+                onChange={e => setQuery(e.target.value)}
+                className="w-full bg-gray-800 text-white placeholder-gray-500 rounded-xl pl-10 pr-4 py-3 text-base outline-none border border-gray-700 focus:border-gray-500"
+              />
+              {query && (
+                <button
+                  onClick={() => setQuery('')}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-xl p-1"
+                >✕</button>
+              )}
+            </div>
           </div>
         )}
       </div>
@@ -271,7 +326,7 @@ export default function RepArrivals() {
         {loading && (
           <div className="flex flex-col items-center justify-center py-24 gap-3">
             <div className="w-8 h-8 border-4 border-brand-400 border-t-transparent rounded-full animate-spin" />
-            <p className="text-gray-400 text-sm">Učitavam goste...</p>
+            <p className="text-gray-400 text-sm">Učitavam raspored...</p>
           </div>
         )}
 
@@ -285,15 +340,24 @@ export default function RepArrivals() {
           </div>
         )}
 
-        {!loading && !loadErr && guests.length === 0 && (
+        {!loading && !loadErr && !hasAssignment && (
           <div className="text-center py-24">
-            <div className="text-5xl mb-4">✈️</div>
-            <p className="text-gray-500 font-medium">Nema dolazaka za {fmtDate(date)}</p>
-            <p className="text-gray-400 text-sm mt-1">Promijeni datum ili provjeri rooming listu</p>
+            <div className="text-5xl mb-4">📭</div>
+            <p className="text-gray-500 font-medium">Nemate dodijeljen let za {fmtDate(date)}</p>
+            <p className="text-gray-400 text-sm mt-1">Obratite se dispečeru da vam dodijeli nalog na stranici "Grupni transferi"</p>
           </div>
         )}
 
-        {!loading && !loadErr && guests.length > 0 && filtered.length === 0 && (
+        {!loading && !loadErr && hasAssignment && list.length === 0 && (
+          <div className="text-center py-24">
+            <div className="text-5xl mb-4">✈️</div>
+            <p className="text-gray-500 font-medium">
+              Nema {tab === 'arr' ? 'dolazaka' : 'odlazaka'} za {fmtDate(date)}
+            </p>
+          </div>
+        )}
+
+        {!loading && !loadErr && hasAssignment && list.length > 0 && filtered.length === 0 && (
           <div className="text-center py-16">
             <div className="text-4xl mb-3">🔍</div>
             <p className="text-gray-500">Nema rezultata za <strong>"{query}"</strong></p>
@@ -303,34 +367,23 @@ export default function RepArrivals() {
           </div>
         )}
 
-        {/* Grupe po letovima */}
-        {!loading && !loadErr && Object.entries(grouped).map(([flightName, recs]) => (
-          <div key={flightName} className="mb-5">
-            {/* Let header */}
-            <div className="flex items-center gap-2 mb-2 px-1">
-              <div className="flex-1 h-px bg-gray-300" />
-              <span className="text-xs font-bold text-gray-500 bg-gray-50 px-2 py-0.5 rounded-full border border-gray-300">
-                ✈ {flightName} — {recs.length} rezervacija
-              </span>
-              <div className="flex-1 h-px bg-gray-300" />
-            </div>
-
-            {/* Kartice */}
-            <div className="space-y-2">
-              {recs.map(rec => (
-                <GuestCard
-                  key={`${rec.claim_inc}-${rec.date_beg}`}
-                  rec={rec}
-                  onPhoneSave={handlePhoneSave}
-                />
-              ))}
-            </div>
+        {/* Kartice */}
+        {!loading && !loadErr && filtered.length > 0 && (
+          <div className="space-y-2">
+            {filtered.map(rec => (
+              <GuestCard
+                key={`${rec.claim_inc}-${tab === 'arr' ? rec.date_beg : rec.date_end}`}
+                rec={rec}
+                direction={tab}
+                onPhoneSave={handlePhoneSave}
+              />
+            ))}
           </div>
-        ))}
+        )}
       </div>
 
       {/* ── Fiksni bottom bar (osvježi) ─────────────────── */}
-      {!loading && guests.length > 0 && (
+      {!loading && (
         <div className="fixed bottom-0 left-0 right-0 z-10 bg-white border-t border-gray-200 px-4 py-3">
           <button
             onClick={load}
