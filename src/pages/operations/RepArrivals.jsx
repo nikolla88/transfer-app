@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef, useMemo, useCallback } from 'react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../App'
-import { normalize, fmtTime } from '../../lib/transferUtils'
+import { normalize, fmtTime, getDayName, findScheduleForDay, calcPickupTime } from '../../lib/transferUtils'
 
 function todayStr() {
   return new Date().toISOString().slice(0, 10)
@@ -12,17 +12,32 @@ function fmtDate(s) {
   return `${d}.${m}.${y}`
 }
 
-// Isti redoslijed kao na "Lista odlazaka": GRP → SHA → IND, pa po pickup_time
+// Isti redoslijed kao na "Lista odlazaka": GRP → SHA → IND, pa po pickup_time (najranije prvo)
 const TR_ORDER = { GRP: 0, SHA: 1, IND: 2 }
 function sortDepartures(list) {
   return [...list].sort((a, b) => {
     const oa = TR_ORDER[a.dep_transfer_alias] ?? 50
     const ob = TR_ORDER[b.dep_transfer_alias] ?? 50
     if (oa !== ob) return oa - ob
-    const pa = a.dep_pick_time || '99:99'
-    const pb = b.dep_pick_time || '99:99'
+    const pa = a._pickupTime || '99:99'
+    const pb = b._pickupTime || '99:99'
     return pa.localeCompare(pb)
   })
+}
+
+// Pickup vrijeme: koristi sačuvani dep_pick_time ako postoji, inače izračunaj
+// iz rasporeda leta (scheduled_time) i vremena vožnje hotel→aerodrom
+// (identična logika kao u GroupSchedule.jsx / DepartureList.jsx enrich()).
+function computePickupTime(r, flightNormMap, hotelMap, dayName) {
+  if (r.dep_pick_time) return r.dep_pick_time
+  const match = flightNormMap[normalize(r.dep_flight_name)]
+  const sched = findScheduleForDay(match?.DEP || [], dayName)
+  const hotel = hotelMap[r.hotel_name]
+  if (sched && hotel) {
+    const mins = sched.airport === 'TIV' ? hotel.time_to_tiv : hotel.time_to_tgd
+    return calcPickupTime(sched.scheduled_time, mins)
+  }
+  return null
 }
 
 const TR_BADGE = {
@@ -99,9 +114,9 @@ function GuestCard({ rec, direction, onPhoneSave, pickedUp, onTogglePickup }) {
               ✈ {flightName}
             </span>
           )}
-          {isDep && rec.dep_pick_time && (
+          {isDep && rec._pickupTime && (
             <span className="text-xs font-mono font-bold text-orange-600">
-              🕐 {fmtTime(rec.dep_pick_time)}
+              🕐 {fmtTime(rec._pickupTime)}
             </span>
           )}
           <span className="text-xs text-gray-400">#{rec.claim_inc}</span>
@@ -271,9 +286,41 @@ export default function RepArrivals() {
     const filteredArr = isRep
       ? (arrData || []).filter(g => arrFlights.has(normalize(g.arr_flight_name)))
       : (arrData || [])
-    const filteredDep = sortDepartures(isRep
+    let depRows = isRep
       ? (depData || []).filter(g => depFlights.has(normalize(g.dep_flight_name)))
-      : (depData || []))
+      : (depData || [])
+
+    // Izračunaj pickup vrijeme za odlazak (dep_pick_time je često prazan u bazi —
+    // stvarno vrijeme se računa iz rasporeda leta i vremena vožnje do hotela,
+    // ista logika kao na "Grupni transferi" i "Lista odlazaka" stranicama).
+    if (depRows.length > 0) {
+      const hotelNames = [...new Set(depRows.map(r => r.hotel_name).filter(Boolean))]
+      const [{ data: schedData }, { data: hotelsData }] = await Promise.all([
+        supabase.from('flight_schedule')
+          .select('flight_number,airport,direction,scheduled_time,days_of_week,aliases'),
+        hotelNames.length
+          ? supabase.from('hotels').select('name,time_to_tiv,time_to_tgd').in('name', hotelNames)
+          : Promise.resolve({ data: [] }),
+      ])
+
+      const flightNormMap = {}
+      for (const s of (schedData || [])) {
+        const norm = normalize(s.flight_number)
+        if (!flightNormMap[norm]) flightNormMap[norm] = { ARR: [], DEP: [] }
+        flightNormMap[norm][s.direction]?.push(s)
+        for (const alias of (s.aliases || [])) {
+          const an = normalize(alias)
+          if (!flightNormMap[an]) flightNormMap[an] = { ARR: [], DEP: [] }
+          flightNormMap[an][s.direction]?.push(s)
+        }
+      }
+      const hotelMap = Object.fromEntries((hotelsData || []).map(h => [h.name, h]))
+      const dayName = getDayName(date)
+
+      depRows = depRows.map(r => ({ ...r, _pickupTime: computePickupTime(r, flightNormMap, hotelMap, dayName) }))
+    }
+
+    const filteredDep = sortDepartures(depRows)
     setArrivals(filteredArr)
     setDepartures(filteredDep)
     // Ako ima samo odlazni let (bez dolaznog), otvori odmah tab odlazaka
