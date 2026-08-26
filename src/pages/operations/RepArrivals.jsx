@@ -12,12 +12,32 @@ function fmtDate(s) {
   return `${d}.${m}.${y}`
 }
 
+// Isti redoslijed kao na "Lista odlazaka": GRP → SHA → IND, pa po pickup_time
+const TR_ORDER = { GRP: 0, SHA: 1, IND: 2 }
+function sortDepartures(list) {
+  return [...list].sort((a, b) => {
+    const oa = TR_ORDER[a.dep_transfer_alias] ?? 50
+    const ob = TR_ORDER[b.dep_transfer_alias] ?? 50
+    if (oa !== ob) return oa - ob
+    const pa = a.dep_pick_time || '99:99'
+    const pb = b.dep_pick_time || '99:99'
+    return pa.localeCompare(pb)
+  })
+}
+
+const TR_BADGE = {
+  GRP: { label: '🚌 GRP', cls: 'bg-indigo-100 text-indigo-700' },
+  SHA: { label: '🚐 SHA', cls: 'bg-purple-100 text-purple-700' },
+  IND: { label: '🚕 IND', cls: 'bg-pink-100 text-pink-700' },
+}
+
 // ── Kartica gosta ────────────────────────────────────────────────
-function GuestCard({ rec, direction, onPhoneSave }) {
+function GuestCard({ rec, direction, onPhoneSave, pickedUp, onTogglePickup }) {
   const [phone, setPhone]   = useState(rec.phone || '')
   const [saving, setSaving] = useState(false)
   const [saved,  setSaved]  = useState(false)
   const inputRef = useRef(null)
+  const isDep = direction === 'dep'
 
   // Sync ako se promijeni rec izvana (npr. refresh)
   // Skidamo vodeći + za prikaz u inputu (dodajemo ga nazad pri save)
@@ -48,15 +68,20 @@ function GuestCard({ rec, direction, onPhoneSave }) {
 
   const hasPhone = !!(phone.trim())
   const flightName = direction === 'arr' ? rec.arr_flight_name : rec.dep_flight_name
+  const trBadge = isDep ? TR_BADGE[rec.dep_transfer_alias] : null
 
   return (
     <div className={`rounded-xl border-2 p-4 transition-colors ${
-      hasPhone ? 'border-green-400 bg-green-50' : 'border-gray-200 bg-white'
+      isDep && pickedUp
+        ? 'border-gray-200 bg-gray-100'
+        : hasPhone ? 'border-green-400 bg-green-50' : 'border-gray-200 bg-white'
     }`}>
       {/* Gornji red: ime + let */}
       <div className="flex items-start justify-between gap-2 mb-2">
         <div className="flex-1 min-w-0">
-          <div className="font-bold text-gray-900 text-base leading-tight truncate">
+          <div className={`font-bold text-base leading-tight truncate ${
+            isDep && pickedUp ? 'text-gray-400 line-through' : 'text-gray-900'
+          }`}>
             {rec.tourist_name || '—'}
           </div>
           <div className="text-sm text-gray-500 mt-0.5 truncate">
@@ -64,6 +89,9 @@ function GuestCard({ rec, direction, onPhoneSave }) {
           </div>
         </div>
         <div className="flex flex-col items-end gap-1 flex-shrink-0">
+          {trBadge && (
+            <span className={`text-xs font-bold px-2 py-0.5 rounded ${trBadge.cls}`}>{trBadge.label}</span>
+          )}
           {flightName && (
             <span className={`text-xs font-mono font-bold px-2 py-0.5 rounded ${
               direction === 'arr' ? 'text-sky-700 bg-sky-100' : 'text-orange-700 bg-orange-100'
@@ -71,7 +99,7 @@ function GuestCard({ rec, direction, onPhoneSave }) {
               ✈ {flightName}
             </span>
           )}
-          {direction === 'dep' && rec.dep_pick_time && (
+          {isDep && rec.dep_pick_time && (
             <span className="text-xs font-mono font-bold text-orange-600">
               🕐 {fmtTime(rec.dep_pick_time)}
             </span>
@@ -80,7 +108,7 @@ function GuestCard({ rec, direction, onPhoneSave }) {
         </div>
       </div>
 
-      {/* Donji red: pax + phone input */}
+      {/* Donji red: pax + phone input + poziv */}
       <div className="flex items-center gap-2 mt-1">
         <span className="text-xs text-gray-500 flex-shrink-0">
           👥 {(rec.adult || 0) + (rec.child || 0)} gosta
@@ -114,7 +142,29 @@ function GuestCard({ rec, direction, onPhoneSave }) {
             <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-green-500">📞</span>
           )}
         </div>
+        {hasPhone && (
+          <a
+            href={`tel:+${phone.trim()}`}
+            className="flex-shrink-0 w-11 h-11 flex items-center justify-center rounded-lg bg-green-500 text-white text-lg active:bg-green-600"
+          >
+            📞
+          </a>
+        )}
       </div>
+
+      {/* Dugme "ukrcan" — samo kod odlaska */}
+      {isDep && (
+        <button
+          onClick={onTogglePickup}
+          className={`mt-3 w-full py-3 rounded-xl font-bold text-sm transition-colors ${
+            pickedUp
+              ? 'bg-green-600 text-white active:bg-green-700'
+              : 'bg-gray-50 text-gray-600 border-2 border-dashed border-gray-300 active:bg-gray-200'
+          }`}
+        >
+          {pickedUp ? '✓ U autobusu — poništi' : '☐ Označi da je ukrcan/a'}
+        </button>
+      )}
     </div>
   )
 }
@@ -200,16 +250,17 @@ export default function RepArrivals() {
         : Promise.resolve({ data: [], error: null }),
       needDep
         ? supabase.from('rooming_list')
-            .select('claim_inc, date_end, tourist_name, hotel_name, dep_flight_name, dep_pick_time, adult, child, phone')
+            .select('claim_inc, date_end, tourist_name, hotel_name, dep_flight_name, dep_pick_time, dep_transfer_alias, dep_picked_up, adult, child, phone')
             .eq('date_end', date)
             .not('dep_flight_name', 'is', null)
-            .order('dep_pick_time')
         : Promise.resolve({ data: [], error: null }),
     ])
 
     const err = arrErr || depErr
     if (err) {
-      setLoadErr(err.message?.includes('phone')
+      setLoadErr(err.message?.includes('dep_picked_up')
+        ? 'Kolona "dep_picked_up" ne postoji u bazi. Pokreni supabase_dep_picked_up.sql u Supabase SQL editoru.'
+        : err.message?.includes('phone')
         ? 'Kolona "phone" ne postoji u bazi. Pokreni supabase_phone.sql u Supabase SQL editoru:\n\nALTER TABLE rooming_list ADD COLUMN IF NOT EXISTS phone TEXT;'
         : 'Greška: ' + err.message
       )
@@ -220,9 +271,9 @@ export default function RepArrivals() {
     const filteredArr = isRep
       ? (arrData || []).filter(g => arrFlights.has(normalize(g.arr_flight_name)))
       : (arrData || [])
-    const filteredDep = isRep
+    const filteredDep = sortDepartures(isRep
       ? (depData || []).filter(g => depFlights.has(normalize(g.dep_flight_name)))
-      : (depData || [])
+      : (depData || []))
     setArrivals(filteredArr)
     setDepartures(filteredDep)
     // Ako ima samo odlazni let (bez dolaznog), otvori odmah tab odlazaka
@@ -238,6 +289,26 @@ export default function RepArrivals() {
     setDepartures(prev => prev.map(g =>
       g.claim_inc === claimInc && g.date_end === dateKey ? { ...g, phone } : g
     ))
+  }, [])
+
+  // Označi/poništi da je gost ukrcan u bus (odlazak) — kao precrtavanje imena na papiru
+  const togglePickup = useCallback(async (rec) => {
+    const next = !rec.dep_picked_up
+    setDepartures(prev => prev.map(g =>
+      g.claim_inc === rec.claim_inc && g.date_end === rec.date_end ? { ...g, dep_picked_up: next } : g
+    ))
+    const { error } = await supabase
+      .from('rooming_list')
+      .update({ dep_picked_up: next })
+      .eq('claim_inc', rec.claim_inc)
+      .eq('date_end', rec.date_end)
+    if (error) {
+      // vrati na staro ako čuvanje nije uspjelo
+      setDepartures(prev => prev.map(g =>
+        g.claim_inc === rec.claim_inc && g.date_end === rec.date_end ? { ...g, dep_picked_up: !next } : g
+      ))
+      alert('Greška pri čuvanju: ' + error.message)
+    }
   }, [])
 
   const list = tab === 'arr' ? arrivals : departures
@@ -266,6 +337,7 @@ export default function RepArrivals() {
 
   const withPhone    = list.filter(g => g.phone).length
   const withoutPhone = list.length - withPhone
+  const pickedUpCount = tab === 'dep' ? list.filter(g => g.dep_picked_up).length : 0
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -311,7 +383,13 @@ export default function RepArrivals() {
         {!loading && hasAssignment && list.length > 0 && (
           <div className="flex gap-3 px-4 pb-2 text-xs">
             <span className="text-gray-300">{list.length} rezervacija</span>
-            <span className="text-green-400 font-semibold">✓ {withPhone} sa brojem</span>
+            {tab === 'dep' ? (
+              <span className={`font-semibold ${pickedUpCount === list.length ? 'text-green-400' : 'text-sky-400'}`}>
+                🚌 {pickedUpCount}/{list.length} ukrcano
+              </span>
+            ) : (
+              <span className="text-green-400 font-semibold">✓ {withPhone} sa brojem</span>
+            )}
             {withoutPhone > 0 && (
               <span className="text-yellow-400">⚠ {withoutPhone} bez broja</span>
             )}
@@ -423,6 +501,8 @@ export default function RepArrivals() {
                 rec={rec}
                 direction={tab}
                 onPhoneSave={handlePhoneSave}
+                pickedUp={rec.dep_picked_up}
+                onTogglePickup={() => togglePickup(rec)}
               />
             ))}
           </div>
