@@ -121,73 +121,84 @@ function GuestCard({ rec, direction, onPhoneSave }) {
 
 // ── Glavna stranica ──────────────────────────────────────────────
 export default function RepArrivals() {
-  const { profile } = useAuth()
+  const { profile, isRep } = useAuth()
   const [date,        setDate]        = useState(todayStr())
   const [arrivals,    setArrivals]    = useState([])
   const [departures,  setDepartures]  = useState([])
-  const [hasAssignment, setHasAssignment] = useState(true) // dok se ne učita, ne prikazuj prazno stanje
+  const [hasAssignment, setHasAssignment] = useState(true) // samo relevantno za predstavnika
   const [tab,          setTab]          = useState('arr') // 'arr' | 'dep'
   const [loading,     setLoading]     = useState(false)
   const [loadErr,     setLoadErr]     = useState(null)
   const [query,       setQuery]       = useState('')
+  const [flightFilter, setFlightFilter] = useState('')
   const searchRef = useRef(null)
 
-  useEffect(() => { load() }, [date, profile?.id])
+  useEffect(() => { load() }, [date, profile?.id, isRep])
 
   async function load() {
     if (!profile?.id) return
     setLoading(true)
     setLoadErr(null)
     setQuery('')
+    setFlightFilter('')
 
-    // 1. Nađi nalog(e) dodijeljen(e) ovom predstavniku za izabrani datum
-    const { data: assigned, error: assignErr } = await supabase
-      .from('group_transfer_orders')
-      .select('type, arr_flight, dep_flight, flight_name')
-      .eq('date', date)
-      .eq('assigned_rep_id', profile.id)
+    // Admin i dispečer vide SVE letove tog dana (pun pristup, bez filtera po dodjeli).
+    // Predstavnik vidi samo let(ove) koji su mu dodijeljeni na "Grupni transferi" stranici.
+    let arrFlights = null // null = bez filtriranja (vidi sve)
+    let depFlights = null
 
-    if (assignErr) {
-      setLoadErr(assignErr.message?.includes('assigned_rep_id')
-        ? 'Kolona "assigned_rep_id" ne postoji u bazi. Pokreni supabase_rep_flight_assignment.sql u Supabase SQL editoru.'
-        : 'Greška: ' + assignErr.message
-      )
-      setLoading(false)
-      return
-    }
+    if (isRep) {
+      const { data: assigned, error: assignErr } = await supabase
+        .from('group_transfer_orders')
+        .select('type, arr_flight, dep_flight, flight_name')
+        .eq('date', date)
+        .eq('assigned_rep_id', profile.id)
 
-    const arrFlights = new Set()
-    const depFlights = new Set()
-    for (const row of (assigned || [])) {
-      if (row.type === 'RT') {
-        if (row.arr_flight) arrFlights.add(normalize(row.arr_flight))
-        if (row.dep_flight) depFlights.add(normalize(row.dep_flight))
-      } else if (row.type === 'arr' && row.flight_name) {
-        arrFlights.add(normalize(row.flight_name))
-      } else if (row.type === 'dep' && row.flight_name) {
-        depFlights.add(normalize(row.flight_name))
+      if (assignErr) {
+        setLoadErr(assignErr.message?.includes('assigned_rep_id')
+          ? 'Kolona "assigned_rep_id" ne postoji u bazi. Pokreni supabase_rep_flight_assignment.sql u Supabase SQL editoru.'
+          : 'Greška: ' + assignErr.message
+        )
+        setLoading(false)
+        return
       }
-    }
 
-    if (arrFlights.size === 0 && depFlights.size === 0) {
-      setHasAssignment(false)
-      setArrivals([])
-      setDepartures([])
-      setLoading(false)
-      return
+      arrFlights = new Set()
+      depFlights = new Set()
+      for (const row of (assigned || [])) {
+        if (row.type === 'RT') {
+          if (row.arr_flight) arrFlights.add(normalize(row.arr_flight))
+          if (row.dep_flight) depFlights.add(normalize(row.dep_flight))
+        } else if (row.type === 'arr' && row.flight_name) {
+          arrFlights.add(normalize(row.flight_name))
+        } else if (row.type === 'dep' && row.flight_name) {
+          depFlights.add(normalize(row.flight_name))
+        }
+      }
+
+      if (arrFlights.size === 0 && depFlights.size === 0) {
+        setHasAssignment(false)
+        setArrivals([])
+        setDepartures([])
+        setLoading(false)
+        return
+      }
     }
     setHasAssignment(true)
 
-    // 2. Učitaj goste sa rooming liste za taj datum i filtriraj po dodijeljenom letu
+    // Učitaj goste sa rooming liste za taj datum (i filtriraj po dodijeljenom letu ako je predstavnik)
+    const needArr = !isRep || arrFlights.size > 0
+    const needDep = !isRep || depFlights.size > 0
+
     const [{ data: arrData, error: arrErr }, { data: depData, error: depErr }] = await Promise.all([
-      arrFlights.size
+      needArr
         ? supabase.from('rooming_list')
             .select('claim_inc, date_beg, tourist_name, hotel_name, arr_flight_name, adult, child, phone')
             .eq('date_beg', date)
             .not('arr_flight_name', 'is', null)
             .order('tourist_name')
         : Promise.resolve({ data: [], error: null }),
-      depFlights.size
+      needDep
         ? supabase.from('rooming_list')
             .select('claim_inc, date_end, tourist_name, hotel_name, dep_flight_name, dep_pick_time, adult, child, phone')
             .eq('date_end', date)
@@ -206,11 +217,15 @@ export default function RepArrivals() {
       return
     }
 
-    const filteredArr = (arrData || []).filter(g => arrFlights.has(normalize(g.arr_flight_name)))
-    const filteredDep = (depData || []).filter(g => depFlights.has(normalize(g.dep_flight_name)))
+    const filteredArr = isRep
+      ? (arrData || []).filter(g => arrFlights.has(normalize(g.arr_flight_name)))
+      : (arrData || [])
+    const filteredDep = isRep
+      ? (depData || []).filter(g => depFlights.has(normalize(g.dep_flight_name)))
+      : (depData || [])
     setArrivals(filteredArr)
     setDepartures(filteredDep)
-    // Ako predstavnik ima samo odlazni let (bez dolaznog), otvori odmah tab odlazaka
+    // Ako ima samo odlazni let (bez dolaznog), otvori odmah tab odlazaka
     setTab(filteredArr.length === 0 && filteredDep.length > 0 ? 'dep' : 'arr')
     setLoading(false)
   }
@@ -227,12 +242,19 @@ export default function RepArrivals() {
 
   const list = tab === 'arr' ? arrivals : departures
 
+  // Svi dostupni letovi u trenutnom tabu (za filter chips — korisno kad admin/dispečer vidi sve letove)
+  const flights = useMemo(() => {
+    const set = new Set(list.map(g => (tab === 'arr' ? g.arr_flight_name : g.dep_flight_name)).filter(Boolean))
+    return [...set].sort()
+  }, [list, tab])
+
   // Klijentsko filtriranje — instant, bez API poziva
   const filtered = useMemo(() => {
     const q = query.toLowerCase().trim()
-    if (!q) return list
     return list.filter(g => {
       const flightName = tab === 'arr' ? g.arr_flight_name : g.dep_flight_name
+      if (flightFilter && flightName !== flightFilter) return false
+      if (!q) return true
       return (
         (g.tourist_name || '').toLowerCase().includes(q) ||
         (g.hotel_name || '').toLowerCase().includes(q) ||
@@ -240,7 +262,7 @@ export default function RepArrivals() {
         (flightName || '').toLowerCase().includes(q)
       )
     })
-  }, [list, query, tab])
+  }, [list, query, tab, flightFilter])
 
   const withPhone    = list.filter(g => g.phone).length
   const withoutPhone = list.length - withPhone
@@ -253,7 +275,7 @@ export default function RepArrivals() {
         {/* Naslov + datum */}
         <div className="flex items-center gap-3 px-4 pt-3 pb-2">
           <span className="text-lg">📋</span>
-          <span className="font-bold text-base flex-1">Moj raspored</span>
+          <span className="font-bold text-base flex-1">{isRep ? 'Moj raspored' : 'Dolasci i odlasci — svi letovi'}</span>
           <input
             type="date"
             value={date}
@@ -267,7 +289,7 @@ export default function RepArrivals() {
         {!loading && hasAssignment && (arrivals.length > 0 || departures.length > 0) && (
           <div className="flex gap-2 px-4 pb-2">
             <button
-              onClick={() => setTab('arr')}
+              onClick={() => { setTab('arr'); setFlightFilter('') }}
               className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-colors ${
                 tab === 'arr' ? 'bg-green-500 text-white' : 'bg-gray-800 text-gray-400'
               }`}
@@ -275,7 +297,7 @@ export default function RepArrivals() {
               🛬 Dolazak {arrivals.length > 0 && `(${arrivals.length})`}
             </button>
             <button
-              onClick={() => setTab('dep')}
+              onClick={() => { setTab('dep'); setFlightFilter('') }}
               className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-colors ${
                 tab === 'dep' ? 'bg-orange-500 text-white' : 'bg-gray-800 text-gray-400'
               }`}
@@ -316,6 +338,31 @@ export default function RepArrivals() {
                 >✕</button>
               )}
             </div>
+          </div>
+        )}
+
+        {/* Filter po letu (korisno kad ima više letova, npr. admin/dispečer pregled) */}
+        {!loading && hasAssignment && flights.length > 1 && (
+          <div className="flex gap-2 px-4 pb-3 overflow-x-auto scrollbar-hide">
+            <button
+              onClick={() => setFlightFilter('')}
+              className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold transition-colors ${
+                !flightFilter ? 'bg-brand-500 text-white' : 'bg-gray-700 text-gray-300'
+              }`}
+            >
+              Svi letovi
+            </button>
+            {flights.map(f => (
+              <button
+                key={f}
+                onClick={() => setFlightFilter(f === flightFilter ? '' : f)}
+                className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold transition-colors ${
+                  flightFilter === f ? 'bg-sky-500 text-white' : 'bg-gray-700 text-gray-300'
+                }`}
+              >
+                ✈ {f}
+              </button>
+            ))}
           </div>
         )}
       </div>
