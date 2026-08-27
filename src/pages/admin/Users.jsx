@@ -22,6 +22,12 @@ const PAGE_GROUPS = [
     ],
   },
   {
+    label: 'Izleti',
+    pages: [
+      { key: 'admin_excursions',   label: 'Izleti — katalog', icon: '🏝️' },
+    ],
+  },
+  {
     label: 'Administracija',
     pages: [
       { key: 'admin_vehicles',     label: 'Vozila',           icon: '🚗' },
