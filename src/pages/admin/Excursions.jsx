@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import Modal from '../../components/Modal'
 
@@ -10,6 +11,7 @@ const EMPTY = {
 }
 
 export default function Excursions() {
+  const navigate = useNavigate()
   const [rows,    setRows]    = useState([])
   const [loading, setLoading] = useState(true)
   const [modal,   setModal]   = useState(false)
@@ -140,6 +142,9 @@ export default function Excursions() {
                     €{Number(r.price_adult).toFixed(2)} <span className="text-xs text-gray-400 font-normal">odrasli</span>
                   </span>
                   <div className="flex gap-1">
+                    {r.type === 'grupni' && (
+                      <button onClick={() => navigate(`/admin/excursions/${r.id}/calendar`)} className="btn-ghost text-xs">📅 Kalendar</button>
+                    )}
                     <button onClick={() => openEdit(r)} className="btn-ghost text-xs">Uredi</button>
                     <button onClick={() => remove(r.id)} className="btn-ghost text-xs text-red-500">Briši</button>
                   </div>

@@ -27,6 +27,7 @@ import VehicleCosts        from './pages/admin/VehicleCosts'
 import SupplierAccounting  from './pages/admin/SupplierAccounting'
 import RepArrivals         from './pages/operations/RepArrivals'
 import Excursions          from './pages/admin/Excursions'
+import ExcursionCalendar   from './pages/admin/ExcursionCalendar'
 
 // ── Auth Context ─────────────────────────────────────────────
 const AuthCtx = createContext(null)
@@ -187,9 +188,11 @@ export default function App() {
             <Route path="admin/vehicle-costs"
               element={<RequirePermission permKey="admin_vehicle_costs"><VehicleCosts /></RequirePermission>} />
 
-            {/* Izleti — katalog (Faza 1) */}
+            {/* Izleti — katalog (Faza 1) + kalendar/kapacitet (Faza 2) */}
             <Route path="admin/excursions"
               element={<RequirePermission permKey="admin_excursions"><Excursions /></RequirePermission>} />
+            <Route path="admin/excursions/:id/calendar"
+              element={<RequirePermission permKey="admin_excursions"><ExcursionCalendar /></RequirePermission>} />
 
             {/* Obračun suplajera */}
             <Route path="admin/supplier-accounting"
