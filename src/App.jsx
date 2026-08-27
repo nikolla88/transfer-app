@@ -39,6 +39,11 @@ const PERM_NONE  = 'none'
 const PERM_READ  = 'read'
 const PERM_WRITE = 'write'
 
+// Stranice kojima Predstavnik (rep) automatski dobija pristup — bez obzira na
+// individualne permisije (koje se za rep ulogu ne primjenjuju). 'rep_arrivals' =
+// Moj raspored, 'excursions_calendar' = Kalendar izleta (prodaja izleta gostima).
+export const REP_ALLOWED_KEYS = ['rep_arrivals', 'excursions_calendar']
+
 function AuthProvider({ children }) {
   const [session, setSession] = useState(undefined) // undefined = učitavanje
   const [profile, setProfile] = useState(null)
@@ -72,8 +77,8 @@ function AuthProvider({ children }) {
   // Vrati nivo permisije za datu stranicu ('none' ako nije definirano)
   function perm(key) {
     if (isAdmin) return PERM_WRITE
-    // Predstavnik uvijek dobija pristup samo /rep stranici
-    if (isRep) return key === 'rep_arrivals' ? PERM_WRITE : PERM_NONE
+    // Predstavnik uvijek dobija pristup samo ograničenom skupu stranica
+    if (isRep) return REP_ALLOWED_KEYS.includes(key) ? PERM_WRITE : PERM_NONE
     return profile?.permissions?.[key] ?? PERM_NONE
   }
 
@@ -192,7 +197,7 @@ export default function App() {
             <Route path="admin/excursions"
               element={<RequirePermission permKey="admin_excursions"><Excursions /></RequirePermission>} />
             <Route path="admin/excursions/calendar"
-              element={<RequirePermission permKey="admin_excursions"><ExcursionCalendar /></RequirePermission>} />
+              element={<RequirePermission permKey="excursions_calendar"><ExcursionCalendar /></RequirePermission>} />
 
             {/* Obračun suplajera */}
             <Route path="admin/supplier-accounting"

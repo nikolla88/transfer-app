@@ -80,7 +80,13 @@ export default function Excursions() {
 
   async function remove(id) {
     if (!confirm('Obrisati izlet? Ova akcija se ne može poništiti.')) return
-    await supabase.from('excursions').delete().eq('id', id)
+    const { error: err } = await supabase.from('excursions').delete().eq('id', id)
+    if (err) {
+      alert(err.message?.includes('violates') || err.message?.includes('foreign key')
+        ? 'Ne može se obrisati — postoje rezervacije gostiju vezane za ovaj izlet.'
+        : 'Greška: ' + err.message)
+      return
+    }
     load()
   }
 

@@ -24,7 +24,8 @@ const PAGE_GROUPS = [
   {
     label: 'Izleti',
     pages: [
-      { key: 'admin_excursions',   label: 'Izleti — katalog', icon: '🏝️' },
+      { key: 'admin_excursions',    label: 'Izleti — katalog',        icon: '🏝️' },
+      { key: 'excursions_calendar', label: 'Kalendar izleta (prodaja)', icon: '📅' },
     ],
   },
   {
@@ -379,7 +380,7 @@ export default function Users() {
               )}
               {newRole === 'rep' && (
                 <div className="p-4 bg-green-50 border border-green-200 rounded-lg text-sm text-green-800">
-                  📱 Predstavnik automatski dobija pristup samo stranici <strong>Moj raspored</strong> — vidi samo goste sa leta koji mu je dodijeljen na stranici "Grupni transferi". Individualne permisije se ne primjenjuju.
+                  📱 Predstavnik automatski dobija pristup stranicama <strong>Moj raspored</strong> (goste sa leta koji mu je dodijeljen na "Grupni transferi") i <strong>Kalendar izleta</strong> (prodaja izleta gostima). Individualne permisije se ne primjenjuju.
                 </div>
               )}
 
@@ -443,7 +444,7 @@ export default function Users() {
               )}
               {editRole === 'rep' && (
                 <div className="p-4 bg-green-50 border border-green-200 rounded-lg text-sm text-green-800">
-                  📱 Predstavnik automatski dobija pristup samo stranici <strong>Moj raspored</strong> — vidi samo goste sa leta koji mu je dodijeljen na stranici "Grupni transferi". Individualne permisije se ne primjenjuju.
+                  📱 Predstavnik automatski dobija pristup stranicama <strong>Moj raspored</strong> (goste sa leta koji mu je dodijeljen na "Grupni transferi") i <strong>Kalendar izleta</strong> (prodaja izleta gostima). Individualne permisije se ne primjenjuju.
                 </div>
               )}
 

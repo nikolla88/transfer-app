@@ -1,7 +1,7 @@
 import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom'
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
-import { useAuth } from '../App'
+import { useAuth, REP_ALLOWED_KEYS } from '../App'
 
 // Sve stranice sa ključevima permisija
 // permKey: null = uvijek vidljivo | '__admin_only__' = samo admin
@@ -30,7 +30,7 @@ const NAV_ITEMS = [
   { to: '/rep',                 icon: '📱', label: 'Moj raspored',    permKey: 'rep_arrivals'       },
   { divider: true },
   { to: '/admin/excursions',    icon: '🏝️', label: 'Izleti',          permKey: 'admin_excursions'   },
-  { to: '/admin/excursions/calendar', icon: '📅', label: 'Kalendar izleta', permKey: 'admin_excursions' },
+  { to: '/admin/excursions/calendar', icon: '📅', label: 'Kalendar izleta', permKey: 'excursions_calendar' },
   { divider: true },
   { to: '/sale-prices',         icon: '💰', label: 'Cjenovnik prodaje', permKey: 'sale_prices'       },
   { to: '/reports',             icon: '📈', label: 'Izvještaji',         permKey: 'reports'           },
@@ -53,8 +53,8 @@ export default function Layout() {
 
   // Filtriranje vidljivih stavki menija
   function isVisible(item) {
-    // Predstavnik vidi samo /rep stranicu
-    if (isRep) return item.permKey === 'rep_arrivals'
+    // Predstavnik vidi samo ograničeni skup stranica
+    if (isRep) return REP_ALLOWED_KEYS.includes(item.permKey)
     if (!item.permKey) return true
     if (item.permKey === '__admin_only__') return isAdmin
     return isAdmin || canRead(item.permKey)
