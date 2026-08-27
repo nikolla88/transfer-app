@@ -83,6 +83,9 @@ function BookingModal({ excursions, hotels, profile, initialExcursionId, initial
   const [hotelName, setHotelName] = useState('')
   const [adult, setAdult] = useState(1)
   const [child, setChild] = useState(0)
+  const [infant, setInfant] = useState(0)
+  const [partner, setPartner] = useState('')
+  const [reservationType, setReservationType] = useState('')
   const [priceAdult, setPriceAdult] = useState('')
   const [priceChild, setPriceChild] = useState('')
   const [discount, setDiscount] = useState('0')
@@ -141,7 +144,7 @@ function BookingModal({ excursions, hotels, profile, initialExcursionId, initial
     const t = setTimeout(async () => {
       const { data } = await supabase
         .from('rooming_list')
-        .select('claim_inc,tourist_name,all_passengers,hotel_name,adult,child')
+        .select('claim_inc,tourist_name,all_passengers,hotel_name,adult,child,infant,partner_alias,arr_transfer_alias,dep_transfer_alias')
         .ilike('tourist_name', `%${nameQuery.trim()}%`)
         .limit(8)
       if (!cancelled) setNameSuggestions(data || [])
@@ -154,7 +157,7 @@ function BookingModal({ excursions, hotels, profile, initialExcursionId, initial
     if (!claim) return
     const { data, error: err } = await supabase
       .from('rooming_list')
-      .select('claim_inc,tourist_name,all_passengers,hotel_name,adult,child')
+      .select('claim_inc,tourist_name,all_passengers,hotel_name,adult,child,infant,partner_alias,arr_transfer_alias,dep_transfer_alias')
       .eq('claim_inc', claim)
     if (err || !data || !data.length) {
       setError(`Rezervacija #${claim} nije pronađena — možeš ručno unijeti podatke gosta ispod.`)
@@ -167,12 +170,16 @@ function BookingModal({ excursions, hotels, profile, initialExcursionId, initial
     const names = [...new Set(
       rows.flatMap(r => (r.all_passengers || r.tourist_name || '').split(';').map(s => s.trim()).filter(Boolean))
     )]
-    const totalAdult = rows.reduce((s, r) => s + (r.adult || 0), 0)
-    const totalChild = rows.reduce((s, r) => s + (r.child || 0), 0)
+    const totalAdult  = rows.reduce((s, r) => s + (r.adult || 0), 0)
+    const totalChild  = rows.reduce((s, r) => s + (r.child || 0), 0)
+    const totalInfant = rows.reduce((s, r) => s + (r.infant || 0), 0)
     setGuestName(names.join(', ') || rows[0].tourist_name || '')
     setHotelName(rows[0].hotel_name || '')
     setAdult(totalAdult || 1)
     setChild(totalChild || 0)
+    setInfant(totalInfant || 0)
+    setPartner(rows[0].partner_alias || '')
+    setReservationType(rows[0].arr_transfer_alias || rows[0].dep_transfer_alias || '')
     setResolvedClaim(rows[0].claim_inc)
     setClaimInput(String(rows[0].claim_inc))
     setNameQuery('')
@@ -222,6 +229,9 @@ function BookingModal({ excursions, hotels, profile, initialExcursionId, initial
       pickup_point:   pickupPoint.trim() || null,
       adult:          Number(adult) || 0,
       child:          Number(child) || 0,
+      infant:         Number(infant) || 0,
+      partner:        partner.trim() || null,
+      reservation_type: reservationType || null,
       price_adult:    Number(priceAdult) || 0,
       price_child:    Number(priceChild) || 0,
       discount:       Number(discount) || 0,
@@ -350,7 +360,7 @@ function BookingModal({ excursions, hotels, profile, initialExcursionId, initial
               {hotels.map(h => <option key={h.id} value={h.name}>{h.name}</option>)}
             </select>
           </div>
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-3 gap-2">
             <div>
               <label className="label">Odrasli</label>
               <input type="number" min="0" className="input" value={adult} onChange={e => setAdult(e.target.value)} />
@@ -359,6 +369,26 @@ function BookingModal({ excursions, hotels, profile, initialExcursionId, initial
               <label className="label">Djeca</label>
               <input type="number" min="0" className="input" value={child} onChange={e => setChild(e.target.value)} />
             </div>
+            <div>
+              <label className="label">Bebe</label>
+              <input type="number" min="0" className="input" value={infant} onChange={e => setInfant(e.target.value)} />
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3 pt-2 border-t">
+          <div>
+            <label className="label">Partner (agencija)</label>
+            <input className="input" value={partner} onChange={e => setPartner(e.target.value)} placeholder="npr. PASHA TRAVEL" />
+          </div>
+          <div>
+            <label className="label">Tip rezervacije gosta</label>
+            <select className="input" value={reservationType} onChange={e => setReservationType(e.target.value)}>
+              <option value="">—</option>
+              <option value="GRP">GRP</option>
+              <option value="SHA">SHA</option>
+              <option value="IND">IND</option>
+            </select>
           </div>
         </div>
 

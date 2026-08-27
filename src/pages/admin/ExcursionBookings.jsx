@@ -2,9 +2,16 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../App'
+import Modal from '../../components/Modal'
 import { fmtDateFull } from '../../lib/transferUtils'
 
 const PAY_LABEL = { cash: 'Gotovina', card: 'Kartica', account: 'Račun' }
+const STATUS_LABELS = {
+  reserved:  { label: 'Rezervisano', cls: 'bg-sky-100 text-sky-700' },
+  paid:      { label: 'Plaćeno',     cls: 'bg-green-100 text-green-700' },
+  cancelled: { label: 'Otkazano',    cls: 'bg-gray-200 text-gray-500' },
+  penalty:   { label: 'Penal',       cls: 'bg-red-100 text-red-700' },
+}
 
 function todayStr() {
   const d = new Date()
@@ -31,7 +38,7 @@ async function exportToExcel(rows) {
     document.head.appendChild(s)
   })
 
-  const header = ['Vaučer', 'Kreirano', 'Izlet', 'Datum izleta', 'Gost', 'Broj rezervacije', 'Hotel', 'Pickup tačka', 'Odrasli', 'Djeca', 'Cijena (€)', 'Plaćanje', 'Predstavnik', 'Napomena']
+  const header = ['Vaučer', 'Datum rezervacije', 'Izlet', 'Datum izleta', 'Gost', 'Broj rezervacije', 'Partner', 'Tip', 'Hotel', 'Pickup tačka', 'Odrasli', 'Djeca', 'Bebe', 'Ukupno pax', 'Cijena (€)', 'Plaćanje', 'Status', 'Predstavnik', 'Napomena']
   const data = rows.map(r => [
     'IZL-' + String(r.voucher_no).padStart(6, '0'),
     fmtDateTime(r.created_at),
@@ -39,17 +46,22 @@ async function exportToExcel(rows) {
     fmtDateFull(r.date),
     r.guest_name,
     r.claim_inc || '',
+    r.partner || '',
+    r.reservation_type || '',
     r.hotel_name || '',
     r.pickup_point || '',
     r.adult,
     r.child,
+    r.infant || 0,
+    (r.adult || 0) + (r.child || 0),
     Number(r.total_price).toFixed(2),
     PAY_LABEL[r.payment_method] || r.payment_method,
+    STATUS_LABELS[r.status]?.label || r.status,
     r.profiles?.full_name || r.profiles?.email || '',
     r.note || '',
   ])
   const ws = XS.utils.aoa_to_sheet([header, ...data])
-  ws['!cols'] = header.map(() => ({ wch: 16 }))
+  ws['!cols'] = header.map(() => ({ wch: 15 }))
   const wb = XS.utils.book_new()
   XS.utils.book_append_sheet(wb, ws, 'Rezervacije')
   const out = XS.write(wb, { bookType: 'xlsx', type: 'array' })
@@ -60,18 +72,182 @@ async function exportToExcel(rows) {
   document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url)
 }
 
+// ── Forma za izmjenu postojeće rezervacije ──────────────────────
+function EditBookingModal({ row, onClose, onSaved }) {
+  const [guestName,   setGuestName]   = useState(row.guest_name || '')
+  const [hotelName,   setHotelName]   = useState(row.hotel_name || '')
+  const [pickupPoint, setPickupPoint] = useState(row.pickup_point || '')
+  const [adult,  setAdult]  = useState(row.adult ?? 0)
+  const [child,  setChild]  = useState(row.child ?? 0)
+  const [infant, setInfant] = useState(row.infant ?? 0)
+  const [priceAdult, setPriceAdult] = useState(String(row.price_adult ?? 0))
+  const [priceChild, setPriceChild] = useState(String(row.price_child ?? 0))
+  const [discount,   setDiscount]   = useState(String(row.discount ?? 0))
+  const [paymentMethod, setPaymentMethod] = useState(row.payment_method || 'cash')
+  const [status,   setStatus]   = useState(row.status || 'reserved')
+  const [partner,  setPartner]  = useState(row.partner || '')
+  const [reservationType, setReservationType] = useState(row.reservation_type || '')
+  const [note,     setNote]     = useState(row.note || '')
+
+  const [saving, setSaving] = useState(false)
+  const [error,  setError]  = useState('')
+
+  const total = Math.max(0, (Number(adult) || 0) * (Number(priceAdult) || 0) + (Number(child) || 0) * (Number(priceChild) || 0) - (Number(discount) || 0))
+
+  async function save() {
+    if (!guestName.trim()) return setError('Ime gosta je obavezno.')
+    if ((Number(adult) || 0) + (Number(child) || 0) <= 0) return setError('Unesi broj putnika (bar 1).')
+    setSaving(true)
+    setError('')
+
+    const payload = {
+      guest_name:       guestName.trim(),
+      hotel_name:       hotelName.trim() || null,
+      pickup_point:     pickupPoint.trim() || null,
+      adult:            Number(adult) || 0,
+      child:            Number(child) || 0,
+      infant:           Number(infant) || 0,
+      price_adult:      Number(priceAdult) || 0,
+      price_child:      Number(priceChild) || 0,
+      discount:         Number(discount) || 0,
+      total_price:      total,
+      payment_method:   paymentMethod,
+      status,
+      partner:          partner.trim() || null,
+      reservation_type: reservationType || null,
+      note:             note.trim() || null,
+    }
+
+    const { error: err } = await supabase.from('excursion_bookings').update(payload).eq('id', row.id)
+    setSaving(false)
+    if (err) { setError('Greška: ' + err.message); return }
+    onSaved()
+  }
+
+  return (
+    <Modal title={`Uredi rezervaciju — IZL-${String(row.voucher_no).padStart(6, '0')}`} onClose={onClose} wide
+      footer={<>
+        <button onClick={onClose} className="btn-ghost">Otkaži</button>
+        <button onClick={save} disabled={saving} className="btn-primary">{saving ? 'Čuvanje...' : 'Sačuvaj izmjene'}</button>
+      </>}
+    >
+      <div className="space-y-4">
+        {error && <div className="text-sm text-red-600 bg-red-50 p-2 rounded">{error}</div>}
+
+        <div>
+          <label className="label mb-1.5">Status rezervacije</label>
+          <div className="grid grid-cols-4 gap-2">
+            {Object.entries(STATUS_LABELS).map(([key, s]) => (
+              <button key={key} type="button" onClick={() => setStatus(key)}
+                className={`py-2 rounded-lg text-xs font-semibold transition-colors ${
+                  status === key ? s.cls + ' ring-2 ring-offset-1 ring-gray-400' : 'bg-gray-50 text-gray-400'
+                }`}>
+                {s.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3 pt-2 border-t">
+          <div className="col-span-2">
+            <label className="label">Ime gosta *</label>
+            <input className="input" value={guestName} onChange={e => setGuestName(e.target.value)} />
+          </div>
+          <div>
+            <label className="label">Hotel</label>
+            <input className="input" value={hotelName} onChange={e => setHotelName(e.target.value)} />
+          </div>
+          <div className="grid grid-cols-3 gap-2">
+            <div>
+              <label className="label">Odrasli</label>
+              <input type="number" min="0" className="input" value={adult} onChange={e => setAdult(e.target.value)} />
+            </div>
+            <div>
+              <label className="label">Djeca</label>
+              <input type="number" min="0" className="input" value={child} onChange={e => setChild(e.target.value)} />
+            </div>
+            <div>
+              <label className="label">Bebe</label>
+              <input type="number" min="0" className="input" value={infant} onChange={e => setInfant(e.target.value)} />
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3 pt-2 border-t">
+          <div>
+            <label className="label">Partner (agencija)</label>
+            <input className="input" value={partner} onChange={e => setPartner(e.target.value)} />
+          </div>
+          <div>
+            <label className="label">Tip rezervacije gosta</label>
+            <select className="input" value={reservationType} onChange={e => setReservationType(e.target.value)}>
+              <option value="">—</option>
+              <option value="GRP">GRP</option>
+              <option value="SHA">SHA</option>
+              <option value="IND">IND</option>
+            </select>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3 pt-2 border-t">
+          <div>
+            <label className="label">Pickup tačka</label>
+            <input className="input" value={pickupPoint} onChange={e => setPickupPoint(e.target.value)} />
+          </div>
+          <div>
+            <label className="label">Način plaćanja</label>
+            <select className="input" value={paymentMethod} onChange={e => setPaymentMethod(e.target.value)}>
+              <option value="cash">Gotovina</option>
+              <option value="card">Kartica</option>
+              <option value="account">Račun (faktura)</option>
+            </select>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-3 gap-3 pt-2 border-t">
+          <div>
+            <label className="label">Cijena — odrasli (€)</label>
+            <input type="number" step="0.01" className="input" value={priceAdult} onChange={e => setPriceAdult(e.target.value)} />
+          </div>
+          <div>
+            <label className="label">Cijena — djeca (€)</label>
+            <input type="number" step="0.01" className="input" value={priceChild} onChange={e => setPriceChild(e.target.value)} />
+          </div>
+          <div>
+            <label className="label">Popust (€)</label>
+            <input type="number" step="0.01" className="input" value={discount} onChange={e => setDiscount(e.target.value)} />
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between pt-2 border-t">
+          <div className="flex-1">
+            <label className="label">Napomena</label>
+            <input className="input" value={note} onChange={e => setNote(e.target.value)} />
+          </div>
+          <div className="text-right pl-4">
+            <div className="text-xs text-gray-400">UKUPNO</div>
+            <div className="text-2xl font-bold text-gray-900">€{total.toFixed(2)}</div>
+          </div>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
 export default function ExcursionBookings() {
   const { isRep } = useAuth()
   const [rows,       setRows]       = useState([])
   const [loading,    setLoading]    = useState(true)
   const [error,      setError]      = useState('')
   const [exporting,  setExporting]  = useState(false)
+  const [editRow,    setEditRow]    = useState(null)
 
   const [excursionsList, setExcursionsList] = useState([])
   const [repsList,       setRepsList]       = useState([])
 
   const [excursionId, setExcursionId] = useState('')
   const [repId,       setRepId]       = useState('')
+  const [statusFilter, setStatusFilter] = useState('')
   const [dateFrom,    setDateFrom]    = useState('')
   const [dateTo,      setDateTo]      = useState('')
 
@@ -84,7 +260,7 @@ export default function ExcursionBookings() {
     }
   }, [isRep])
 
-  useEffect(() => { load() }, [excursionId, repId, dateFrom, dateTo])
+  useEffect(() => { load() }, [excursionId, repId, statusFilter, dateFrom, dateTo])
 
   async function load() {
     setLoading(true)
@@ -93,10 +269,11 @@ export default function ExcursionBookings() {
       .select('*, excursions(name), profiles(full_name,email)')
       .order('created_at', { ascending: false })
 
-    if (excursionId) q = q.eq('excursion_id', excursionId)
-    if (repId)       q = q.eq('rep_id', repId)
-    if (dateFrom)    q = q.gte('date', dateFrom)
-    if (dateTo)      q = q.lte('date', dateTo)
+    if (excursionId)   q = q.eq('excursion_id', excursionId)
+    if (repId)         q = q.eq('rep_id', repId)
+    if (statusFilter)  q = q.eq('status', statusFilter)
+    if (dateFrom)      q = q.gte('date', dateFrom)
+    if (dateTo)        q = q.lte('date', dateTo)
 
     const { data, error: err } = await q
     if (err) {
@@ -133,7 +310,7 @@ export default function ExcursionBookings() {
       <div className="card p-3 mb-4 flex flex-wrap gap-2 items-end">
         <div>
           <label className="label">Izlet</label>
-          <select className="input w-48" value={excursionId} onChange={e => setExcursionId(e.target.value)}>
+          <select className="input w-44" value={excursionId} onChange={e => setExcursionId(e.target.value)}>
             <option value="">Svi izleti</option>
             {excursionsList.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
           </select>
@@ -141,12 +318,19 @@ export default function ExcursionBookings() {
         {!isRep && (
           <div>
             <label className="label">Predstavnik</label>
-            <select className="input w-48" value={repId} onChange={e => setRepId(e.target.value)}>
+            <select className="input w-44" value={repId} onChange={e => setRepId(e.target.value)}>
               <option value="">Svi</option>
               {repsList.map(r => <option key={r.id} value={r.id}>{r.full_name || r.email}</option>)}
             </select>
           </div>
         )}
+        <div>
+          <label className="label">Status</label>
+          <select className="input w-40" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
+            <option value="">Svi</option>
+            {Object.entries(STATUS_LABELS).map(([key, s]) => <option key={key} value={key}>{s.label}</option>)}
+          </select>
+        </div>
         <div>
           <label className="label">Datum izleta od</label>
           <input type="date" className="input w-40" value={dateFrom} onChange={e => setDateFrom(e.target.value)} />
@@ -155,8 +339,8 @@ export default function ExcursionBookings() {
           <label className="label">do</label>
           <input type="date" className="input w-40" value={dateTo} onChange={e => setDateTo(e.target.value)} />
         </div>
-        {(excursionId || repId || dateFrom || dateTo) && (
-          <button onClick={() => { setExcursionId(''); setRepId(''); setDateFrom(''); setDateTo('') }} className="btn-ghost text-xs">
+        {(excursionId || repId || statusFilter || dateFrom || dateTo) && (
+          <button onClick={() => { setExcursionId(''); setRepId(''); setStatusFilter(''); setDateFrom(''); setDateTo('') }} className="btn-ghost text-xs">
             ✕ Poništi filtere
           </button>
         )}
@@ -174,7 +358,7 @@ export default function ExcursionBookings() {
           </div>
           <div className="card p-3 text-center">
             <div className="text-2xl font-bold text-gray-800">{totalPax}</div>
-            <div className="text-xs text-gray-500">putnika</div>
+            <div className="text-xs text-gray-500">putnika (bez beba)</div>
           </div>
           <div className="card p-3 text-center">
             <div className="text-2xl font-bold text-yellow-700">€{totalPrice.toFixed(2)}</div>
@@ -195,16 +379,23 @@ export default function ExcursionBookings() {
             <thead className="bg-gray-50 border-b">
               <tr>
                 <th className="th">Vaučer</th>
-                <th className="th">Kreirano</th>
+                <th className="th">Datum rezervacije</th>
                 <th className="th">Izlet</th>
                 <th className="th">Datum</th>
                 <th className="th">Gost</th>
+                <th className="th">Partner</th>
+                <th className="th">Tip</th>
                 <th className="th">Hotel</th>
                 <th className="th">Pickup tačka</th>
-                <th className="th text-center">Pax</th>
+                <th className="th text-center">Odr.</th>
+                <th className="th text-center">Dj.</th>
+                <th className="th text-center">Bebe</th>
+                <th className="th text-center">Ukupno</th>
                 <th className="th text-right">Cijena</th>
                 <th className="th">Plaćanje</th>
+                <th className="th">Status</th>
                 <th className="th">Predstavnik</th>
+                {!isRep && <th className="th"></th>}
               </tr>
             </thead>
             <tbody className="divide-y">
@@ -218,17 +409,40 @@ export default function ExcursionBookings() {
                     {r.guest_name}
                     {r.claim_inc && <span className="text-gray-400 ml-1">#{r.claim_inc}</span>}
                   </td>
+                  <td className="td text-gray-500">{r.partner || '—'}</td>
+                  <td className="td text-gray-500">{r.reservation_type || '—'}</td>
                   <td className="td">{r.hotel_name || '—'}</td>
                   <td className="td">{r.pickup_point || '—'}</td>
-                  <td className="td text-center font-mono">{r.adult}{r.child ? `+${r.child}` : ''}</td>
+                  <td className="td text-center font-mono">{r.adult}</td>
+                  <td className="td text-center font-mono">{r.child}</td>
+                  <td className="td text-center font-mono text-gray-400">{r.infant || 0}</td>
+                  <td className="td text-center font-mono font-semibold">{(r.adult || 0) + (r.child || 0)}</td>
                   <td className="td text-right font-mono font-semibold">€{Number(r.total_price).toFixed(2)}</td>
                   <td className="td">{PAY_LABEL[r.payment_method] || r.payment_method}</td>
+                  <td className="td">
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${STATUS_LABELS[r.status]?.cls || 'bg-gray-100 text-gray-500'}`}>
+                      {STATUS_LABELS[r.status]?.label || r.status}
+                    </span>
+                  </td>
                   <td className="td">{r.profiles?.full_name || r.profiles?.email || '—'}</td>
+                  {!isRep && (
+                    <td className="td">
+                      <button onClick={() => setEditRow(r)} className="btn-ghost text-xs">Uredi</button>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
+      )}
+
+      {editRow && (
+        <EditBookingModal
+          row={editRow}
+          onClose={() => setEditRow(null)}
+          onSaved={() => { setEditRow(null); load() }}
+        />
       )}
     </div>
   )
