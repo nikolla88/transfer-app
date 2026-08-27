@@ -191,7 +191,7 @@ export default function App() {
             {/* Izleti — katalog (Faza 1) + kalendar/kapacitet (Faza 2) */}
             <Route path="admin/excursions"
               element={<RequirePermission permKey="admin_excursions"><Excursions /></RequirePermission>} />
-            <Route path="admin/excursions/:id/calendar"
+            <Route path="admin/excursions/calendar"
               element={<RequirePermission permKey="admin_excursions"><ExcursionCalendar /></RequirePermission>} />
 
             {/* Obračun suplajera */}

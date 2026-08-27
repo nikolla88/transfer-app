@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import Modal from '../../components/Modal'
 
@@ -11,7 +11,6 @@ const EMPTY = {
 }
 
 export default function Excursions() {
-  const navigate = useNavigate()
   const [rows,    setRows]    = useState([])
   const [loading, setLoading] = useState(true)
   const [modal,   setModal]   = useState(false)
@@ -101,9 +100,12 @@ export default function Excursions() {
 
   return (
     <div className="p-6 max-w-6xl mx-auto">
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-6 flex-wrap gap-2">
         <h1 className="text-xl font-bold text-gray-900">🏝️ Izleti — katalog</h1>
-        <button onClick={openNew} className="btn-primary">+ Dodaj izlet</button>
+        <div className="flex items-center gap-2">
+          <Link to="/admin/excursions/calendar" className="btn-ghost">📅 Kalendar izleta</Link>
+          <button onClick={openNew} className="btn-primary">+ Dodaj izlet</button>
+        </div>
       </div>
 
       {error && !modal && (
@@ -142,9 +144,6 @@ export default function Excursions() {
                     €{Number(r.price_adult).toFixed(2)} <span className="text-xs text-gray-400 font-normal">odrasli</span>
                   </span>
                   <div className="flex gap-1">
-                    {r.type === 'grupni' && (
-                      <button onClick={() => navigate(`/admin/excursions/${r.id}/calendar`)} className="btn-ghost text-xs">📅 Kalendar</button>
-                    )}
                     <button onClick={() => openEdit(r)} className="btn-ghost text-xs">Uredi</button>
                     <button onClick={() => remove(r.id)} className="btn-ghost text-xs text-red-500">Briši</button>
                   </div>

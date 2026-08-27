@@ -30,6 +30,7 @@ const NAV_ITEMS = [
   { to: '/rep',                 icon: '📱', label: 'Moj raspored',    permKey: 'rep_arrivals'       },
   { divider: true },
   { to: '/admin/excursions',    icon: '🏝️', label: 'Izleti',          permKey: 'admin_excursions'   },
+  { to: '/admin/excursions/calendar', icon: '📅', label: 'Kalendar izleta', permKey: 'admin_excursions' },
   { divider: true },
   { to: '/sale-prices',         icon: '💰', label: 'Cjenovnik prodaje', permKey: 'sale_prices'       },
   { to: '/reports',             icon: '📈', label: 'Izvještaji',         permKey: 'reports'           },
