@@ -395,13 +395,21 @@ export default function ExcursionBookings() {
                 <th className="th">Plaćanje</th>
                 <th className="th">Status</th>
                 <th className="th">Predstavnik</th>
-                {!isRep && <th className="th"></th>}
               </tr>
             </thead>
             <tbody className="divide-y">
               {rows.map(r => (
                 <tr key={r.id} className="hover:bg-gray-50">
-                  <td className="td font-mono font-semibold text-brand-700">IZL-{String(r.voucher_no).padStart(6, '0')}</td>
+                  <td className="td">
+                    {isRep ? (
+                      <span className="font-mono font-semibold text-brand-700">IZL-{String(r.voucher_no).padStart(6, '0')}</span>
+                    ) : (
+                      <button onClick={() => setEditRow(r)}
+                        className="font-mono font-semibold text-brand-700 hover:text-brand-800 hover:underline">
+                        IZL-{String(r.voucher_no).padStart(6, '0')}
+                      </button>
+                    )}
+                  </td>
                   <td className="td text-gray-500">{fmtDateTime(r.created_at)}</td>
                   <td className="td font-medium">{r.excursions?.name || '—'}</td>
                   <td className="td">{fmtDateFull(r.date)}</td>
@@ -425,11 +433,6 @@ export default function ExcursionBookings() {
                     </span>
                   </td>
                   <td className="td">{r.profiles?.full_name || r.profiles?.email || '—'}</td>
-                  {!isRep && (
-                    <td className="td">
-                      <button onClick={() => setEditRow(r)} className="btn-ghost text-xs">Uredi</button>
-                    </td>
-                  )}
                 </tr>
               ))}
             </tbody>
