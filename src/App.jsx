@@ -28,6 +28,7 @@ import SupplierAccounting  from './pages/admin/SupplierAccounting'
 import RepArrivals         from './pages/operations/RepArrivals'
 import Excursions          from './pages/admin/Excursions'
 import ExcursionCalendar   from './pages/admin/ExcursionCalendar'
+import ExcursionBookings   from './pages/admin/ExcursionBookings'
 
 // ── Auth Context ─────────────────────────────────────────────
 const AuthCtx = createContext(null)
@@ -198,6 +199,8 @@ export default function App() {
               element={<RequirePermission permKey="admin_excursions"><Excursions /></RequirePermission>} />
             <Route path="admin/excursions/calendar"
               element={<RequirePermission permKey="excursions_calendar"><ExcursionCalendar /></RequirePermission>} />
+            <Route path="admin/excursions/bookings"
+              element={<RequirePermission permKey="excursions_calendar"><ExcursionBookings /></RequirePermission>} />
 
             {/* Obračun suplajera */}
             <Route path="admin/supplier-accounting"

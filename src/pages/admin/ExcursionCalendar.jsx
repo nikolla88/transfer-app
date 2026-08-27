@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../App'
 import Modal from '../../components/Modal'
@@ -555,6 +556,7 @@ export default function ExcursionCalendar() {
       <div className="flex items-center gap-3 mb-4 flex-wrap">
         <h1 className="text-xl font-bold text-gray-900">📅 Kalendar izleta</h1>
         <button onClick={() => { setBookingInit(null); setBookingOpen(true) }} className="btn-primary">🎟️ Nova rezervacija</button>
+        <Link to="/admin/excursions/bookings" className="btn-ghost">📋 Rezervacije</Link>
         <div className="flex items-center gap-1.5 ml-auto">
           <button onClick={prevWindow} className="btn-ghost px-3">← 3 sedmice</button>
           <button onClick={goToday} className="btn-ghost px-3">Danas</button>
