@@ -50,7 +50,7 @@ function openPrintVoucher(booking, excursion) {
     <div class="hdr"><div class="company">PROMETHEUS</div><div class="code">${voucherCode}</div></div>
     <h1>${escapeHtml(excursion?.name || '')}</h1>
     <div class="row"><span>Datum</span><strong>${fmtDateFull(booking.date)}</strong></div>
-    <div class="row"><span>Gost</span><strong>${escapeHtml(booking.guest_name)}</strong></div>
+    <div class="row"><span>Gost</span><strong>${escapeHtml(booking.guest_full_names || booking.guest_name)}</strong></div>
     <div class="row"><span>Hotel</span><strong>${escapeHtml(booking.hotel_name || '—')}</strong></div>
     <div class="row"><span>Pick-up tačka</span><strong>${escapeHtml(booking.pickup_point || '—')}</strong></div>
     <div class="row"><span>Putnici</span><strong>${booking.adult} odraslih${booking.child ? ', ' + booking.child + ' djece' : ''}</strong></div>
@@ -80,6 +80,7 @@ function BookingModal({ excursions, hotels, profile, initialExcursionId, initial
   const [resolvedClaim, setResolvedClaim] = useState(null) // claim_inc broj ako je gost povezan
 
   const [guestName, setGuestName] = useState('')
+  const [guestFullNames, setGuestFullNames] = useState('')
   const [hotelName, setHotelName] = useState('')
   const [adult, setAdult] = useState(1)
   const [child, setChild] = useState(0)
@@ -173,7 +174,10 @@ function BookingModal({ excursions, hotels, profile, initialExcursionId, initial
     const totalAdult  = rows.reduce((s, r) => s + (r.adult || 0), 0)
     const totalChild  = rows.reduce((s, r) => s + (r.child || 0), 0)
     const totalInfant = rows.reduce((s, r) => s + (r.infant || 0), 0)
-    setGuestName(names.join(', ') || rows[0].tourist_name || '')
+    // Ime gosta u spisku = SAMO nosilac rezervacije; puni spisak putnika (za buduću
+    // štampu) čuva se odvojeno u guestFullNames.
+    setGuestName(rows[0].tourist_name || names[0] || '')
+    setGuestFullNames(names.join(', '))
     setHotelName(rows[0].hotel_name || '')
     setAdult(totalAdult || 1)
     setChild(totalChild || 0)
@@ -225,6 +229,7 @@ function BookingModal({ excursions, hotels, profile, initialExcursionId, initial
       date,
       claim_inc:      resolvedClaim || null,
       guest_name:     guestName.trim(),
+      guest_full_names: guestFullNames.trim() || null,
       hotel_name:     hotelName || null,
       pickup_point:   pickupPoint.trim() || null,
       adult:          Number(adult) || 0,
@@ -350,8 +355,12 @@ function BookingModal({ excursions, hotels, profile, initialExcursionId, initial
 
         <div className="grid grid-cols-2 gap-3 pt-2 border-t">
           <div className="col-span-2">
-            <label className="label">Ime gosta *</label>
+            <label className="label">Ime gosta (nosilac rezervacije) *</label>
             <input className="input" value={guestName} onChange={e => setGuestName(e.target.value)} placeholder="Ime i prezime" />
+          </div>
+          <div className="col-span-2">
+            <label className="label">Svi putnici (opciono — za štampu spiska)</label>
+            <input className="input" value={guestFullNames} onChange={e => setGuestFullNames(e.target.value)} placeholder="npr. Ime1 Prezime1, Ime2 Prezime2..." />
           </div>
           <div>
             <label className="label">Hotel</label>

@@ -38,13 +38,14 @@ async function exportToExcel(rows) {
     document.head.appendChild(s)
   })
 
-  const header = ['Vaučer', 'Datum rezervacije', 'Izlet', 'Datum izleta', 'Gost', 'Broj rezervacije', 'Partner', 'Tip', 'Hotel', 'Pickup tačka', 'Odrasli', 'Djeca', 'Bebe', 'Ukupno pax', 'Cijena (€)', 'Plaćanje', 'Status', 'Predstavnik', 'Napomena']
+  const header = ['Vaučer', 'Datum rezervacije', 'Izlet', 'Datum izleta', 'Gost (nosilac)', 'Svi putnici', 'Broj rezervacije', 'Partner', 'Tip', 'Hotel', 'Pickup tačka', 'Odrasli', 'Djeca', 'Bebe', 'Ukupno pax', 'Cijena (€)', 'Plaćanje', 'Status', 'Predstavnik', 'Napomena']
   const data = rows.map(r => [
     'IZL-' + String(r.voucher_no).padStart(6, '0'),
     fmtDateTime(r.created_at),
     r.excursions?.name || '',
     fmtDateFull(r.date),
     r.guest_name,
+    r.guest_full_names || '',
     r.claim_inc || '',
     r.partner || '',
     r.reservation_type || '',
@@ -75,6 +76,7 @@ async function exportToExcel(rows) {
 // ── Forma za izmjenu postojeće rezervacije ──────────────────────
 function EditBookingModal({ row, onClose, onSaved }) {
   const [guestName,   setGuestName]   = useState(row.guest_name || '')
+  const [guestFullNames, setGuestFullNames] = useState(row.guest_full_names || '')
   const [hotelName,   setHotelName]   = useState(row.hotel_name || '')
   const [pickupPoint, setPickupPoint] = useState(row.pickup_point || '')
   const [adult,  setAdult]  = useState(row.adult ?? 0)
@@ -102,6 +104,7 @@ function EditBookingModal({ row, onClose, onSaved }) {
 
     const payload = {
       guest_name:       guestName.trim(),
+      guest_full_names: guestFullNames.trim() || null,
       hotel_name:       hotelName.trim() || null,
       pickup_point:     pickupPoint.trim() || null,
       adult:            Number(adult) || 0,
@@ -150,8 +153,12 @@ function EditBookingModal({ row, onClose, onSaved }) {
 
         <div className="grid grid-cols-2 gap-3 pt-2 border-t">
           <div className="col-span-2">
-            <label className="label">Ime gosta *</label>
+            <label className="label">Ime gosta (nosilac rezervacije) *</label>
             <input className="input" value={guestName} onChange={e => setGuestName(e.target.value)} />
+          </div>
+          <div className="col-span-2">
+            <label className="label">Svi putnici (opciono — za štampu spiska)</label>
+            <input className="input" value={guestFullNames} onChange={e => setGuestFullNames(e.target.value)} />
           </div>
           <div>
             <label className="label">Hotel</label>
@@ -374,32 +381,24 @@ export default function ExcursionBookings() {
       )}
 
       {!loading && rows.length > 0 && (
-        <div className="card overflow-x-auto">
-          <table className="w-full text-xs">
+        <div className="card">
+          <table className="w-full text-xs table-fixed">
             <thead className="bg-gray-50 border-b">
               <tr>
-                <th className="th">Vaučer</th>
-                <th className="th">Datum rezervacije</th>
-                <th className="th">Izlet</th>
-                <th className="th">Datum</th>
-                <th className="th">Gost</th>
-                <th className="th">Partner</th>
-                <th className="th">Tip</th>
-                <th className="th">Hotel</th>
-                <th className="th">Pickup tačka</th>
-                <th className="th text-center">Odr.</th>
-                <th className="th text-center">Dj.</th>
-                <th className="th text-center">Bebe</th>
-                <th className="th text-center">Ukupno</th>
-                <th className="th text-right">Cijena</th>
-                <th className="th">Plaćanje</th>
-                <th className="th">Status</th>
-                <th className="th">Predstavnik</th>
+                <th className="th w-[10%]">Vaučer</th>
+                <th className="th w-[13%]">Izlet</th>
+                <th className="th w-[18%]">Gost</th>
+                <th className="th w-[9%]">Partner / tip</th>
+                <th className="th w-[15%]">Hotel / pickup</th>
+                <th className="th w-[8%] text-center">Pax</th>
+                <th className="th w-[10%] text-right">Cijena</th>
+                <th className="th w-[8%]">Status</th>
+                <th className="th w-[9%]">Predstavnik</th>
               </tr>
             </thead>
             <tbody className="divide-y">
               {rows.map(r => (
-                <tr key={r.id} className="hover:bg-gray-50">
+                <tr key={r.id} className="hover:bg-gray-50 align-top">
                   <td className="td">
                     {isRep ? (
                       <span className="font-mono font-semibold text-brand-700">IZL-{String(r.voucher_no).padStart(6, '0')}</span>
@@ -409,30 +408,38 @@ export default function ExcursionBookings() {
                         IZL-{String(r.voucher_no).padStart(6, '0')}
                       </button>
                     )}
+                    <div className="text-[10px] text-gray-400 mt-0.5">{fmtDateTime(r.created_at)}</div>
                   </td>
-                  <td className="td text-gray-500">{fmtDateTime(r.created_at)}</td>
-                  <td className="td font-medium">{r.excursions?.name || '—'}</td>
-                  <td className="td">{fmtDateFull(r.date)}</td>
+                  <td className="td">
+                    <div className="font-medium">{r.excursions?.name || '—'}</div>
+                    <div className="text-[10px] text-gray-400 mt-0.5">{fmtDateFull(r.date)}</div>
+                  </td>
                   <td className="td">
                     {r.guest_name}
-                    {r.claim_inc && <span className="text-gray-400 ml-1">#{r.claim_inc}</span>}
+                    {r.claim_inc && <div className="text-[10px] text-gray-400 mt-0.5">#{r.claim_inc}</div>}
                   </td>
-                  <td className="td text-gray-500">{r.partner || '—'}</td>
-                  <td className="td text-gray-500">{r.reservation_type || '—'}</td>
-                  <td className="td">{r.hotel_name || '—'}</td>
-                  <td className="td">{r.pickup_point || '—'}</td>
-                  <td className="td text-center font-mono">{r.adult}</td>
-                  <td className="td text-center font-mono">{r.child}</td>
-                  <td className="td text-center font-mono text-gray-400">{r.infant || 0}</td>
-                  <td className="td text-center font-mono font-semibold">{(r.adult || 0) + (r.child || 0)}</td>
-                  <td className="td text-right font-mono font-semibold">€{Number(r.total_price).toFixed(2)}</td>
-                  <td className="td">{PAY_LABEL[r.payment_method] || r.payment_method}</td>
+                  <td className="td text-gray-500">
+                    <div>{r.partner || '—'}</div>
+                    {r.reservation_type && <div className="text-[10px] mt-0.5">{r.reservation_type}</div>}
+                  </td>
                   <td className="td">
-                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${STATUS_LABELS[r.status]?.cls || 'bg-gray-100 text-gray-500'}`}>
+                    <div>{r.hotel_name || '—'}</div>
+                    <div className="text-[10px] text-gray-400 mt-0.5">{r.pickup_point || '—'}</div>
+                  </td>
+                  <td className="td text-center font-mono">
+                    {r.adult}+{r.child}
+                    {r.infant > 0 && <div className="text-[10px] text-gray-400 mt-0.5">+{r.infant} bebe</div>}
+                  </td>
+                  <td className="td text-right font-mono font-semibold">
+                    €{Number(r.total_price).toFixed(2)}
+                    <div className="text-[10px] text-gray-400 mt-0.5 font-normal">{PAY_LABEL[r.payment_method] || r.payment_method}</div>
+                  </td>
+                  <td className="td">
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded whitespace-nowrap ${STATUS_LABELS[r.status]?.cls || 'bg-gray-100 text-gray-500'}`}>
                       {STATUS_LABELS[r.status]?.label || r.status}
                     </span>
                   </td>
-                  <td className="td">{r.profiles?.full_name || r.profiles?.email || '—'}</td>
+                  <td className="td text-gray-500">{r.profiles?.full_name || r.profiles?.email || '—'}</td>
                 </tr>
               ))}
             </tbody>
